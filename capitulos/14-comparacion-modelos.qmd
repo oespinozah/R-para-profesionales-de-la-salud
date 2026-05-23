@@ -47,7 +47,14 @@ metricas_binarias <- function(obs, prob, corte = 0.5) {
   sens <- ifelse(sum(cm["Sí", ]) > 0, cm["Sí", "Sí"] / sum(cm["Sí", ]), NA)
   esp  <- ifelse(sum(cm["No", ]) > 0, cm["No", "No"] / sum(cm["No", ]), NA)
   brier <- mean((ifelse(obs_chr == "Sí", 1, 0) - prob)^2)
-  auc <- as.numeric(pROC::roc(response = obs_chr, predictor = prob, levels = c("No", "Sí"), quiet = TRUE)$auc)
+  auc <- if (length(unique(obs_chr)) == 2) {
+    tryCatch(
+      as.numeric(pROC::roc(response = obs_chr, predictor = prob, levels = c("No", "Sí"), quiet = TRUE)$auc),
+      error = function(e) NA_real_
+    )
+  } else {
+    NA_real_
+  }
   
   tibble(
     Accuracy = round(acc, 3),

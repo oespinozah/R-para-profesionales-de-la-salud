@@ -52,7 +52,7 @@ modelo_cox1 %>%
 ### 2.3 Curva de supervivencia ajustada
 
 ```{r}
-sobrevida1 <- survfit(modelo_cox1)
+sobrevida1 <- survfit(Surv(tiempo, evento) ~ grupo, data = datos1)
 ggsurvplot(sobrevida1, data = datos1, pval = TRUE, conf.int = TRUE,
            legend.title = "Grupo", xlab = "Tiempo (meses)",
            ylab = "Probabilidad de supervivencia")

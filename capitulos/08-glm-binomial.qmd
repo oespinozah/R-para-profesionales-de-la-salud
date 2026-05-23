@@ -125,12 +125,12 @@ repeat {
 n2 <- 250
 edad <- rnorm(n2, 55, 10)
 tiene_diabetes <- rbinom(n2, 1, 0.25)
-log_riesgo <- -0.5 + 0.03 * edad + 0.6 * tiene_diabetes + 0.8 * (tratamiento == "Fármaco")
+log_riesgo <- -3 + 0.015 * edad + 0.25 * tiene_diabetes + 0.35 * (tratamiento == "Fármaco")
 prob_rr <- exp(log_riesgo)
-prob_rr[prob_rr >= 1] <- 0.7
 desfecho <- rbinom(n2, 1, prob_rr)
 
 datos2 <- data.frame(
+  evento_num = desfecho,
   evento = factor(desfecho, levels = c(0,1), labels = c("No", "Sí")),
   edad = edad,
   tiene_diabetes = factor(tiene_diabetes, labels = c("No", "Sí")),
@@ -142,11 +142,18 @@ datos2 <- data.frame(
 ### 3.2 Ajuste del modelo binomial con enlace log
 
 ```{r}
-modelo_log <- glm(evento ~ edad + tiene_diabetes + tratamiento + sexo, data = datos2, family = binomial(link = "log"))
-modelo_log %>% 
-  tbl_regression(exponentiate = TRUE, conf.level = 0.95) %>%
-  modify_header(label ~ "Variable explicativa") %>%
-  modify_caption("**Modelo binomial con función de enlace log (riesgo relativo)**")
+modelo_log <- glm(evento_num ~ edad + tiene_diabetes + tratamiento + sexo, data = datos2, family = binomial(link = "log"))
+
+coef_log <- summary(modelo_log)$coefficients
+
+tibble(
+  variable = rownames(coef_log),
+  riesgo_relativo = exp(coef_log[, "Estimate"]),
+  ic_95_inf = exp(coef_log[, "Estimate"] - 1.96 * coef_log[, "Std. Error"]),
+  ic_95_sup = exp(coef_log[, "Estimate"] + 1.96 * coef_log[, "Std. Error"]),
+  p_valor = coef_log[, "Pr(>|z|)"]
+) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3)))
 ```
 
 ### 3.3 Evaluación del modelo
@@ -173,7 +180,7 @@ AIC(modelo_log)
 ### 3.4 Comparación con modelo reducido
 
 ```{r}
-modelo_reducido <- glm(evento ~ edad + tratamiento, data = datos2, family = binomial(link = "log"))
+modelo_reducido <- glm(evento_num ~ edad + tratamiento, data = datos2, family = binomial(link = "log"))
 anova(modelo_reducido, modelo_log, test = "Chisq")
 ```
 

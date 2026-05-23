@@ -52,7 +52,7 @@ datos %>% head(10)
 
 Estos datos también los podemos exportar
 
-```{r}
+```{r, eval=FALSE}
 datos %>% export("../datos/inferencia-datos-simulados.xlsx")
 ```
 

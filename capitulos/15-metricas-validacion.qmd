@@ -48,7 +48,14 @@ metricas_binarias <- function(obs, prob, corte = 0.5) {
   sens <- ifelse(sum(cm["Sí", ]) > 0, cm["Sí", "Sí"] / sum(cm["Sí", ]), NA)
   esp  <- ifelse(sum(cm["No", ]) > 0, cm["No", "No"] / sum(cm["No", ]), NA)
   brier <- mean((ifelse(obs_chr == "Sí", 1, 0) - prob)^2)
-  auc <- as.numeric(roc(response = obs_chr, predictor = prob, levels = c("No", "Sí"), quiet = TRUE)$auc)
+  auc <- if (length(unique(obs_chr)) == 2) {
+    tryCatch(
+      as.numeric(roc(response = obs_chr, predictor = prob, levels = c("No", "Sí"), quiet = TRUE)$auc),
+      error = function(e) NA_real_
+    )
+  } else {
+    NA_real_
+  }
   
   tibble(
     Accuracy = acc,
@@ -97,17 +104,24 @@ bootstrap_auc_glm <- function(datos, B = 100) {
                data = boot, family = binomial)
     
     prob <- predict(mod, newdata = boot, type = "response")
-    aucs[b] <- as.numeric(roc(response = boot$evento,
-                              predictor = prob,
-                              levels = c("No", "Sí"),
-                              quiet = TRUE)$auc)
+    aucs[b] <- if (length(unique(boot$evento)) == 2) {
+      tryCatch(
+        as.numeric(roc(response = boot$evento,
+                       predictor = prob,
+                       levels = c("No", "Sí"),
+                       quiet = TRUE)$auc),
+        error = function(e) NA_real_
+      )
+    } else {
+      NA_real_
+    }
   }
   
   tibble(
-    AUC_media = mean(aucs),
-    AUC_sd = sd(aucs),
-    AUC_min = min(aucs),
-    AUC_max = max(aucs)
+    AUC_media = mean(aucs, na.rm = TRUE),
+    AUC_sd = sd(aucs, na.rm = TRUE),
+    AUC_min = min(aucs, na.rm = TRUE),
+    AUC_max = max(aucs, na.rm = TRUE)
   ) %>%
     mutate(across(everything(), ~round(.x, 3)))
 }
@@ -425,11 +439,11 @@ Promedio de métricas en validación cruzada
 ```{r}
 resultados_cv %>%
   summarise(
-    Accuracy = mean(Accuracy),
-    Sensibilidad = mean(Sensibilidad),
-    Especificidad = mean(Especificidad),
-    AUC = mean(AUC),
-    Brier = mean(Brier)
+    Accuracy = mean(Accuracy, na.rm = TRUE),
+    Sensibilidad = mean(Sensibilidad, na.rm = TRUE),
+    Especificidad = mean(Especificidad, na.rm = TRUE),
+    AUC = mean(AUC, na.rm = TRUE),
+    Brier = mean(Brier, na.rm = TRUE)
   ) %>%
   mutate(across(everything(), ~round(.x, 3)))
 ```

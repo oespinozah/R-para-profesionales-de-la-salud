@@ -20,8 +20,18 @@ library(ggplot2)
 library(MASS)
 library(sandwich)
 library(lmtest)
-library(gtsummary)
 set.seed(2025)
+
+tabla_modelo_exp <- function(modelo) {
+  tidy(modelo) %>%
+    mutate(
+      estimacion_exp = exp(estimate),
+      ic_95_inf = exp(estimate - 1.96 * std.error),
+      ic_95_sup = exp(estimate + 1.96 * std.error)
+    ) %>%
+    select(term, estimacion_exp, ic_95_inf, ic_95_sup, p.value) %>%
+    mutate(across(where(is.numeric), ~ round(.x, 3)))
+}
 ```
 
 ---
@@ -46,8 +56,7 @@ datos_pois <- data.frame(cuentas, edad, bmi, exposicion)
 
 ```{r}
 modelo_pois <- glm(cuentas ~ edad + bmi + offset(log(exposicion)), family = poisson(link = "log"), data = datos_pois)
-modelo_pois %>% 
-  tbl_regression(exponentiate = TRUE, conf.level = 0.95)
+tabla_modelo_exp(modelo_pois)
 ```
 
 ### Segundo escenario: Poisson sin offset
@@ -61,8 +70,7 @@ log_lambda <- 0.02 * edad + 0.06 * bmi + 0.5 * tabaquismo
 cuentas2 <- rpois(n2, lambda = exp(log_lambda))
 datos_pois2 <- data.frame(cuentas2, edad, bmi, tabaquismo = factor(tabaquismo, labels = c("No", "Sí")))
 modelo_pois2 <- glm(cuentas2 ~ edad + bmi + tabaquismo, family = poisson(link = "log"), data = datos_pois2)
-modelo_pois2 %>% 
-  tbl_regression(exponentiate = TRUE, conf.level = 0.95)
+tabla_modelo_exp(modelo_pois2)
 ```
 
 ---
@@ -73,16 +81,14 @@ modelo_pois2 %>%
 
 ```{r}
 modelo_nb <- glm.nb(cuentas ~ edad + bmi + offset(log(exposicion)), data = datos_pois)
-modelo_nb %>% 
-  tbl_regression(exponentiate = TRUE, conf.level = 0.95)
+tabla_modelo_exp(modelo_nb)
 ```
 
 ### Ajuste con el segundo conjunto de datos
 
 ```{r}
 modelo_nb2 <- glm.nb(cuentas2 ~ edad + bmi + tabaquismo, data = datos_pois2)
-modelo_nb2 %>% 
-  tbl_regression(exponentiate = TRUE, conf.level = 0.95)
+tabla_modelo_exp(modelo_nb2)
 ```
 
 ---
@@ -123,8 +129,7 @@ datos_inter <- data.frame(cuentas_ecv, edad, diabetes = factor(diabetes), obesid
 
 ```{r}
 modelo_inter <- glm(cuentas_ecv ~ edad + diabetes * obesidad, family = poisson(link = "log"), data = datos_inter)
-modelo_inter %>%
-  tbl_regression(exponentiate = TRUE, conf.level = 0.95)
+tabla_modelo_exp(modelo_inter)
 ```
 
 ## 2.3 Segundo escenario de interacción
@@ -138,8 +143,7 @@ log_mu2 <- 0.015 * edad + 0.7 * (tto == "Fármaco") + 0.9 * (tiene_diabetes == "
 conteos <- rpois(n4, exp(log_mu2))
 datos_inter2 <- data.frame(conteos, edad, tto, tiene_diabetes)
 modelo_int2 <- glm(conteos ~ edad + tto * tiene_diabetes, family = poisson(link = "log"), data = datos_inter2)
-modelo_int2 %>% 
-  tbl_regression(exponentiate = TRUE, conf.level = 0.95)
+tabla_modelo_exp(modelo_int2)
 ```
 
 
