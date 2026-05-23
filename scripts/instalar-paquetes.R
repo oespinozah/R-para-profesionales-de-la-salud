@@ -21,11 +21,16 @@ paquetes <- c(
   "mice"
 )
 
+if (.Platform$OS.type == "windows" && nzchar(Sys.getenv("R_LIBS_USER"))) {
+  dir.create(Sys.getenv("R_LIBS_USER"), recursive = TRUE, showWarnings = FALSE)
+  .libPaths(c(Sys.getenv("R_LIBS_USER"), .libPaths()))
+}
+
 instalados <- rownames(installed.packages())
 faltantes <- setdiff(paquetes, instalados)
 
 if (length(faltantes) > 0) {
-  install.packages(faltantes)
+  install.packages(faltantes, lib = .libPaths()[1])
 }
 
 invisible(lapply(paquetes, require, character.only = TRUE))

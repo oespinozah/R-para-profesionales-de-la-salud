@@ -23,14 +23,14 @@ library(lmtest)
 set.seed(2025)
 
 tabla_modelo_exp <- function(modelo) {
-  tidy(modelo) %>%
-    mutate(
+  broom::tidy(modelo) %>%
+    dplyr::mutate(
       estimacion_exp = exp(estimate),
       ic_95_inf = exp(estimate - 1.96 * std.error),
       ic_95_sup = exp(estimate + 1.96 * std.error)
     ) %>%
-    select(term, estimacion_exp, ic_95_inf, ic_95_sup, p.value) %>%
-    mutate(across(where(is.numeric), ~ round(.x, 3)))
+    dplyr::select(term, estimacion_exp, ic_95_inf, ic_95_sup, p.value) %>%
+    dplyr::mutate(dplyr::across(where(is.numeric), ~ round(.x, 3)))
 }
 ```
 

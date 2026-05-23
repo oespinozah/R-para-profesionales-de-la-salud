@@ -50,6 +50,7 @@ format:
     smooth-scroll: true
     link-external-newwindow: true
     callout-appearance: simple
+    html-table-processing: none
 
 execute:
   warning: false
