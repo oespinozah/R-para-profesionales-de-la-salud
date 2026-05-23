@@ -1,0 +1,424 @@
+﻿---
+title: "13 | Fundamentos de predicción"
+subtitle: "Sobreajuste, variables, colinealidad y datos faltantes"
+---
+
+# Fundamentos del modelado predictivo
+
+Un modelo predictivo útil no depende solo del algoritmo. Aquí se revisan sobreajuste, partición de datos, colinealidad, categorización y datos faltantes.
+
+
+
+------------------------------------------------------------------------
+
+## 1. Carga de paquetes y configuración
+
+```{r setup, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(gtsummary)
+library(broom)
+library(mice)
+library(car)
+set.seed(2026)
+```
+
+### 1.1. Funciones auxiliares para métricas
+
+```{r}
+metricas_binarias <- function(obs, prob, corte = 0.5) {
+  obs_chr <- as.character(obs)
+  pred_chr <- ifelse(prob >= corte, "Sí", "No")
+  
+  cm <- table(
+    Observado = factor(obs_chr, levels = c("No", "Sí")),
+    Predicho = factor(pred_chr, levels = c("No", "Sí"))
+  )
+  
+  acc <- sum(diag(cm)) / sum(cm)
+  sens <- ifelse(sum(cm["Sí", ]) > 0, cm["Sí", "Sí"] / sum(cm["Sí", ]), NA)
+  esp  <- ifelse(sum(cm["No", ]) > 0, cm["No", "No"] / sum(cm["No", ]), NA)
+  brier <- mean((ifelse(obs_chr == "Sí", 1, 0) - prob)^2)
+  auc <- as.numeric(pROC::roc(response = obs_chr, predictor = prob, levels = c("No", "Sí"), quiet = TRUE)$auc)
+  
+  tibble(
+    Accuracy = round(acc, 3),
+    Sensibilidad = round(sens, 3),
+    Especificidad = round(esp, 3),
+    AUC = round(auc, 3),
+    Brier = round(brier, 3)
+  )
+}
+
+division_train_test <- function(datos, prop_train = 0.7) {
+  id_train <- sample(seq_len(nrow(datos)), size = floor(prop_train * nrow(datos)))
+  list(
+    train = datos[id_train, ],
+    test = datos[-id_train, ]
+  )
+}
+```
+
+
+------------------------------------------------------------------------
+
+## 2. Escenario 1: Modelo parsimonioso vs modelo sobreajustado
+
+### 2.1 Simulación de datos clínicos
+
+```{r}
+n1 <- 250
+
+edad <- round(rnorm(n1, mean = 60, sd = 10))
+imc <- round(rnorm(n1, mean = 28, sd = 4), 1)
+glucosa <- round(rnorm(n1, mean = 110, sd = 20), 0)
+sexo <- factor(sample(c("Mujer", "Hombre"), n1, replace = TRUE))
+tabaquismo <- factor(sample(c("No", "Sí"), n1, replace = TRUE, prob = c(0.7, 0.3)))
+
+# Comentario del ejemplo
+
+
+var_ruido1 <- rnorm(n1)
+var_ruido2 <- rnorm(n1)
+var_ruido3 <- rnorm(n1)
+var_ruido4 <- rnorm(n1)
+var_ruido5 <- rnorm(n1)
+
+lp <- -7 + 0.05 * edad + 0.06 * glucosa + 0.8 * (tabaquismo == "Sí")
+prob <- plogis(lp)
+evento <- rbinom(n1, size = 1, prob = prob)
+
+datos1 <- data.frame(
+  edad, imc, glucosa, sexo, tabaquismo,
+  var_ruido1, var_ruido2, var_ruido3, var_ruido4, var_ruido5,
+  evento = factor(evento, labels = c("No", "Sí"))
+)
+
+head(datos1)
+```
+
+### 2.2 División en conjunto de entrenamiento y prueba
+
+```{r}
+set.seed(2025)
+split1 <- division_train_test(datos1, prop_train = 0.7)
+train1 <- split1$train
+test1 <- split1$test
+
+dim(train1)
+dim(test1)
+```
+
+### 2.3 Modelo parsimonioso
+
+```{r}
+modelo_parsimonioso <- glm(evento ~ edad + glucosa + tabaquismo,
+                           data = train1,
+                           family = binomial)
+
+prob_test_pars <- predict(modelo_parsimonioso, newdata = test1, type = "response")
+
+metricas_pars <- metricas_binarias(test1$evento, prob_test_pars)
+metricas_pars
+```
+
+### 2.4 Modelo más complejo
+
+```{r}
+modelo_complejo <- glm(evento ~ edad + glucosa + tabaquismo + imc + sexo +
+                         var_ruido1 + var_ruido2 + var_ruido3 + var_ruido4 + var_ruido5,
+                       data = train1,
+                       family = binomial)
+
+prob_test_comp <- predict(modelo_complejo, newdata = test1, type = "response")
+
+metricas_comp <- metricas_binarias(test1$evento, prob_test_comp)
+metricas_comp
+```
+
+### 2.5. Comparación Predictiva
+
+```{r}
+bind_rows(
+  metricas_pars %>% mutate(Modelo = "Parsimonioso"),
+  metricas_comp %>% mutate(Modelo = "Complejo")
+) %>%
+  select(Modelo, everything())
+```
+
+
+## 3. Escenario 2: Regresión logística para desenlace binario
+
+### 3.1 Simulación de datos clínicos
+
+```{r}
+n2 <- 260
+
+edad <- round(rnorm(n2, mean = 58, sd = 11))
+sexo <- factor(sample(c("Mujer", "Hombre"), n2, replace = TRUE))
+colesterol <- round(rnorm(n2, mean = 210, sd = 35), 0)
+
+lp <- -6 + 0.06 * edad + 0.015 * colesterol + 0.7 * (sexo == "Hombre")
+prob <- plogis(lp)
+evento <- rbinom(n2, size = 1, prob = prob)
+
+datos2 <- data.frame(
+  edad = edad,
+  sexo = sexo,
+  colesterol = colesterol,
+  evento = factor(evento, labels = c("No", "Sí"))
+) %>%
+  mutate(edad_cat = factor(ifelse(edad < 60, "<60", "≥60")))
+
+head(datos2)
+```
+
+### 3.2 División en entrenamiento y prueba
+
+```{r}
+set.seed(2025)
+split2 <- division_train_test(datos2, prop_train = 0.7)
+train2 <- split2$train
+test2 <- split2$test
+```
+
+### 3.3 Modelo con edad continua
+
+```{r}
+modelo_continuo <- glm(evento ~ edad + sexo + colesterol,
+                       data = train2,
+                       family = binomial)
+
+prob_test_cont <- predict(modelo_continuo, newdata = test2, type = "response")
+
+metricas_cont <- metricas_binarias(test2$evento, prob_test_cont)
+metricas_cont
+```
+
+### 3.4 Modelo con edad categorizada
+
+```{r}
+modelo_categorizado <- glm(evento ~ edad_cat + sexo + colesterol,
+                           data = train2,
+                           family = binomial)
+
+prob_test_cat <- predict(modelo_categorizado, newdata = test2, type = "response")
+
+metricas_cat <- metricas_binarias(test2$evento, prob_test_cat)
+metricas_cat
+```
+
+### 3.5. Comparación predictiva
+
+```{r}
+bind_rows(
+  metricas_cont %>% mutate(Modelo = "Edad continua"),
+  metricas_cat %>% mutate(Modelo = "Edad categorizada")
+) %>%
+  select(Modelo, everything())
+```
+
+
+## 4. Escenario 3: Colinealidad y predicción
+
+### 4.1 Simulación de datos con predictores correlacionados
+
+
+```{r}
+n4 <- 180
+
+n3 <- 240
+
+peso <- rnorm(n3, mean = 72, sd = 12)
+talla <- rnorm(n3, mean = 1.65, sd = 0.08)
+imc <- peso / (talla^2)
+circ_abdominal <- 0.9 * peso + rnorm(n3, 0, 4)
+
+lp <- -10 + 0.08 * imc + 0.03 * circ_abdominal
+prob <- plogis(lp)
+evento <- rbinom(n3, 1, prob)
+
+datos3 <- data.frame(
+  peso = round(peso, 1),
+  talla = round(talla, 2),
+  imc = round(imc, 1),
+  circ_abdominal = round(circ_abdominal, 1),
+  evento = factor(evento, labels = c("No", "Sí"))
+)
+
+head(datos3)
+```
+
+
+### 4.2 Correlación entre predictores
+
+```{r}
+datos3 %>%
+  select(peso, talla, imc, circ_abdominal) %>%
+  cor()
+```
+
+
+### 4.3 División en entrenamiento y prueba
+
+```{r}
+set.seed(2025)
+split3 <- division_train_test(datos3, prop_train = 0.7)
+train3 <- split3$train
+test3 <- split3$test
+```
+
+### 4.4 Modelo con variables correlacionadas
+
+```{r}
+modelo_colineal <- glm(evento ~ peso + imc + circ_abdominal,
+                       data = train3,
+                       family = binomial)
+
+vif(modelo_colineal)
+```
+
+### 4.5 Desempeño predictivo
+
+```{r}
+prob_test_col <- predict(modelo_colineal, newdata = test3, type = "response")
+metricas_binarias(test3$evento, prob_test_col)
+```
+
+
+## 5. Escenario 4: Datos faltantes y análisis completo de casos
+
+
+### 5.1 Simulación de datos con valores faltantes
+
+```{r}
+n4 <- 280
+
+edad <- round(rnorm(n4, mean = 62, sd = 9))
+sexo <- factor(sample(c("Mujer", "Hombre"), n4, replace = TRUE))
+imc <- round(rnorm(n4, mean = 29, sd = 4), 1)
+glucosa <- round(rnorm(n4, mean = 115, sd = 22), 0)
+
+lp <- -7 + 0.05 * edad + 0.06 * glucosa + 0.7 * (sexo == "Hombre")
+prob <- plogis(lp)
+evento <- rbinom(n4, 1, prob)
+
+datos4 <- data.frame(
+  edad = edad,
+  sexo = sexo,
+  imc = imc,
+  glucosa = glucosa,
+  evento = factor(evento, labels = c("No", "Sí"))
+)
+
+set.seed(2025)
+datos4$imc[sample(1:n4, 45)] <- NA
+datos4$glucosa[sample(1:n4, 35)] <- NA
+
+summary(datos4)
+```
+
+
+### 5.2 Datos faltantes por variable
+
+```{r}
+colSums(is.na(datos4))
+```
+
+### 5.3 División en entrenamiento y prueba
+
+```{r}
+set.seed(2025)
+split4 <- division_train_test(datos4, prop_train = 0.7)
+train4 <- split4$train
+test4 <- split4$test
+```
+
+
+### 5.4 Modelo usando análisis completo de casos
+
+```{r}
+modelo_cc <- glm(evento ~ edad + sexo + imc + glucosa,
+                 data = train4,
+                 family = binomial,
+                 na.action = na.omit)
+
+nrow(train4)
+nobs(modelo_cc)
+```
+
+### 5.5 Predicción en casos completos del conjunto de prueba
+
+```{r}
+test4_cc <- test4 %>% drop_na(imc, glucosa)
+
+prob_test_cc <- predict(modelo_cc, newdata = test4_cc, type = "response")
+metricas_cc <- metricas_binarias(test4_cc$evento, prob_test_cc)
+metricas_cc
+```
+
+
+## 6. Escenario 5: Imputación múltiple con MICE y comparación predictiva
+
+### 6.1 Patrón de faltantes
+
+```{r}
+md.pattern(train4)
+```
+
+
+### 6.2 Imputación múltiple en entrenamiento y prueba
+
+```{r}
+imp_train <- mice(train4, m = 5, seed = 2025, printFlag = FALSE)
+imp_test  <- mice(test4,  m = 5, seed = 2025, printFlag = FALSE)
+
+imp_train
+```
+
+
+### 6.3 Ajuste del modelo en los conjuntos imputados de entrenamiento
+
+```{r}
+ajustes_imp <- with(imp_train, glm(evento ~ edad + sexo + imc + glucosa,
+                                   family = binomial))
+```
+
+
+### 6.4 Predicción en los conjuntos imputados de prueba
+
+```{r}
+lista_train <- complete(imp_train, action = "all")
+lista_test  <- complete(imp_test, action = "all")
+
+probabilidades <- map2(lista_train, lista_test, \(dtrain, dtest) {
+  modelo <- glm(evento ~ edad + sexo + imc + glucosa,
+                data = dtrain,
+                family = binomial)
+  predict(modelo, newdata = dtest, type = "response")
+})
+
+prob_prom <- Reduce("+", probabilidades) / length(probabilidades)
+metricas_mi <- metricas_binarias(lista_test[[1]]$evento, prob_prom)
+metricas_mi
+```
+
+
+### 6.5 Comparación predictiva: casos completos vs imputación múltiple
+
+```{r}
+bind_rows(
+  metricas_cc %>% mutate(Estrategia = "Casos completos"),
+  metricas_mi %>% mutate(Estrategia = "Imputación múltiple")
+) %>%
+  select(Estrategia, everything())
+```
+
+
+
+
+------------------------------------------------------------------------
+
+# Referencias
+
+1.  Kleinbaum DG, Klein M. *Survival Analysis: A Self-Learning Text*. Springer; 2012.
+2.  Therneau TM, Grambsch PM. *Modeling Survival Data: Extending the Cox Model*. Springer; 2000.

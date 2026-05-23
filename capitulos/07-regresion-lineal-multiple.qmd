@@ -1,0 +1,195 @@
+﻿---
+title: "07 | Regresión lineal múltiple"
+subtitle: "Ajuste, supuestos y selección de variables"
+---
+
+# Regresión lineal múltiple
+
+Luego de comprender la relación simple, este capítulo incorpora múltiples predictores, variables categóricas y comparación entre modelos.
+
+
+
+---
+
+## 1. Carga de paquetes y datos simulados
+
+```{r setup, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(broom)
+library(car)
+library(MASS)
+set.seed(2025)
+```
+
+## 2. Simulación de datos clínicos
+
+```{r}
+n <- 150
+edad <- rnorm(n, 50, 10)
+bmi <- rnorm(n, 27, 4)
+tabaquismo <- rbinom(n, 1, 0.3)
+ejercicio <- rnorm(n, 3, 1.2)
+grupo <- factor(sample(c("Control", "Tratamiento A", "Tratamiento B"), n, replace = TRUE))
+
+# Comentario del ejemplo
+
+
+y <- 130 - 0.4 * edad + 1.1 * bmi + 2 * tabaquismo - 1.5 * ejercicio - 5 * (grupo == "Tratamiento A") - 8 * (grupo == "Tratamiento B") + rnorm(n, 0, 8)
+datos <- data.frame(presion = y, edad, bmi, tabaquismo = factor(tabaquismo, labels = c("No", "Sí")), ejercicio, grupo)
+```
+
+## 3. Construcción de variables dummy
+
+```{r}
+datos <- datos %>% mutate(
+  trataA = ifelse(grupo == "Tratamiento A", 1, 0),
+  trataB = ifelse(grupo == "Tratamiento B", 1, 0)
+)
+```
+
+## 4. Ajuste del modelo múltiple
+
+```{r}
+modelo_rlm <- lm(presion ~ edad + bmi + ejercicio + tabaquismo + trataA + trataB, data = datos)
+tidy(modelo_rlm)
+```
+
+## 5. Evaluación de supuestos
+
+```{r}
+datos_aug <- augment(modelo_rlm)
+
+# Comentario del ejemplo
+
+
+ggplot(datos_aug, aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(title = "Homocedasticidad", x = "Valores ajustados", y = "Residuos")
+
+# Comentario del ejemplo
+
+
+ggplot(datos_aug, aes(sample = .resid)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Normalidad de residuos")
+```
+
+## 6. Evaluación de multicolinealidad
+
+```{r}
+vif(modelo_rlm)
+```
+
+## 7. Significancia global del modelo
+
+```{r}
+summary(modelo_rlm)$fstatistic
+```
+
+## 8. Comparación de modelos (con y sin variables dummy)
+
+```{r}
+modelo_sin_dummies <- lm(presion ~ edad + bmi + ejercicio + tabaquismo, data = datos)
+anova(modelo_sin_dummies, modelo_rlm)
+```
+
+## 9. Interpretación de coeficientes
+
+- `edad`: efecto ajustado de la edad sobre la presión arterial.
+- `bmi`: incremento esperado en presión por unidad de aumento en índice de masa corporal.
+- `trataA` y `trataB`: diferencias en presión respecto al grupo control.
+
+## 10. Selección automática de variables
+
+### a. Método backward
+
+```{r}
+modelo_full <- lm(presion ~ edad + bmi + ejercicio + tabaquismo + trataA + trataB, data = datos)
+modelo_backward <- step(modelo_full, direction = "backward")
+summary(modelo_backward)
+```
+
+### b. Método forward
+
+```{r}
+modelo_nulo <- lm(presion ~ 1, data = datos)
+modelo_forward <- step(modelo_nulo, scope = list(lower = modelo_nulo, upper = modelo_full), direction = "forward")
+summary(modelo_forward)
+```
+
+### c. Método stepwise
+
+```{r}
+modelo_stepwise <- step(modelo_nulo, scope = list(lower = modelo_nulo, upper = modelo_full), direction = "both")
+summary(modelo_stepwise)
+```
+
+## 11. Comparación entre modelos seleccionados
+
+```{r}
+AIC(modelo_rlm, modelo_backward, modelo_forward, modelo_stepwise)
+```
+
+## 12. Explorando variantes del modelo de regresión
+
+### a. Evaluar una posible interacción entre variables
+
+```{r}
+modelo_interaccion <- lm(presion ~ edad * tabaquismo + bmi + ejercicio + trataA + trataB, data = datos)
+tidy(modelo_interaccion)
+```
+
+### b. Simular colinealidad entre variables predictoras
+
+```{r}
+peso <- bmi * 2 + rnorm(n, 0, 2)
+datos$peso <- peso
+modelo_colineal <- lm(presion ~ edad + bmi + peso + ejercicio + trataA + trataB, data = datos)
+vif(modelo_colineal)
+```
+
+### c. Usar una variable categórica como factor
+
+```{r}
+modelo_factor <- lm(presion ~ edad + bmi + ejercicio + tabaquismo + grupo, data = datos)
+tidy(modelo_factor)
+```
+
+### d. Analizar un subgrupo específico
+
+```{r}
+modelo_subgrupo <- lm(presion ~ edad + bmi + ejercicio + grupo, data = datos %>% filter(tabaquismo == "No"))
+tidy(modelo_subgrupo)
+```
+
+### e. Crear variables dummy desde una variable categórica de 4 niveles
+
+```{r}
+datos$region <- factor(sample(c("Sierra", "Selva", "Costa", "Lima"), n, replace = TRUE))
+datos <- datos %>% mutate(
+  region_sierra = ifelse(region == "Sierra", 1, 0),
+  region_selva = ifelse(region == "Selva", 1, 0),
+  region_costa = ifelse(region == "Costa", 1, 0)
+)
+modelo_region <- lm(presion ~ edad + bmi + ejercicio + tabaquismo + trataA + trataB + region_sierra + region_selva + region_costa, data = datos)
+tidy(modelo_region)
+```
+
+### f. Comparar codificación manual vs automática
+
+```{r}
+modelo_region_factor <- lm(presion ~ edad + bmi + ejercicio + tabaquismo + grupo + region, data = datos)
+tidy(modelo_region_factor)
+```
+
+---
+
+# Referencias
+
+
+
+1. Vittinghoff E, Glidden DV, Shiboski SC, McCulloch CE. *Regression Methods in Biostatistics*. Springer; 2012.  
+2. James G, Witten D, Hastie T, Tibshirani R. *An Introduction to Statistical Learning*. Springer; 2013.

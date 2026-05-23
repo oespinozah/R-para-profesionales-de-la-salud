@@ -1,0 +1,188 @@
+﻿---
+title: "08 | GLM binomial"
+subtitle: "Riesgo, odds y desenlaces binarios"
+---
+
+# Modelos lineales generalizados para desenlaces binarios
+
+Muchos desenlaces en salud son binarios. Este capítulo extiende la lógica de regresión hacia modelos binomiales para estimar odds, riesgos y probabilidades.
+
+
+
+---
+
+## 1. Carga de paquetes y configuración
+
+```{r setup, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(broom)
+library(ggplot2)
+library(car)
+library(MASS)
+library(gtsummary)
+set.seed(2025)
+```
+
+## 2. Caso 1: Regresión logística con función de enlace logit
+
+### 2.1 Simulación de datos clínicos
+
+```{r}
+set.seed(2025)
+n <- 200
+edad <- rnorm(n, 45, 12)
+bmi <- rnorm(n, 28, 5)
+tabaquismo <- rbinom(n, 1, 0.35)
+grupo <- factor(sample(c("Control", "Tratamiento"), n, replace = TRUE))
+log_odds <- -2 + 0.05 * edad + 0.1 * bmi + 0.8 * tabaquismo + 0.9 * (grupo == "Tratamiento")
+prob <- exp(log_odds) / (1 + exp(log_odds))
+exito <- rbinom(n, 1, prob)
+datos <- data.frame(exito = factor(exito, levels = c(0,1), labels = c("No", "Sí")), 
+                    edad, 
+                    bmi, 
+                    tabaquismo = factor(tabaquismo, labels = c("No", "Sí")), 
+                    grupo)
+```
+
+### 2.2 Ajuste del modelo logit
+
+```{r}
+modelo_logit <- glm(exito ~ edad + bmi + tabaquismo + grupo, data = datos, family = binomial(link = "logit"))
+modelo_logit %>% 
+  tbl_regression(exponentiate = TRUE, conf.level = 0.95)
+```
+
+### 2.3 Evaluación de supuestos
+
+```{r}
+datos_aug <- augment(modelo_logit)
+
+# Comentario del ejemplo
+
+
+plot(modelo_logit, which = 1)
+
+# Comentario del ejemplo
+
+
+vif(modelo_logit)
+```
+
+### 2.4 Evaluación del ajuste del modelo
+
+```{r}
+# Comentario del ejemplo
+
+
+deviance(modelo_logit)
+
+# Comentario del ejemplo
+
+
+modelo_simple <- glm(exito ~ edad + bmi, data = datos, family = binomial)
+anova(modelo_simple, modelo_logit, test = "Chisq")
+
+# Comentario del ejemplo
+
+
+AIC(modelo_logit)
+BIC(modelo_logit)
+```
+
+### 2.5 Evaluación con interacción
+
+```{r}
+modelo_interaccion <- glm(exito ~ edad * tabaquismo + bmi + grupo, data = datos, family = binomial)
+tidy(modelo_interaccion, exponentiate = TRUE, conf.int = TRUE)
+```
+
+### 2.6 Codificación automática vs manual de variables categóricas
+
+```{r}
+modelo_factor <- glm(exito ~ edad + bmi + tabaquismo + grupo, data = datos, family = binomial)
+tidy(modelo_factor, exponentiate = TRUE, conf.int = TRUE)
+```
+
+---
+
+## 3. Caso 2: Modelo binomial con función de enlace log (riesgo relativo)
+
+### 3.1 Simulación de un nuevo escenario
+
+```{r}
+
+set.seed(2025)
+repeat {
+  sexo <- factor(sample(c("Hombre", "Mujer"), 250, replace = TRUE))
+  if (nlevels(sexo) == 2) break
+}
+
+repeat {
+  tratamiento <- factor(sample(c("Placebo", "Fármaco"), 250, replace = TRUE))
+  if (nlevels(tratamiento) == 2) break
+}
+
+n2 <- 250
+edad <- rnorm(n2, 55, 10)
+tiene_diabetes <- rbinom(n2, 1, 0.25)
+log_riesgo <- -0.5 + 0.03 * edad + 0.6 * tiene_diabetes + 0.8 * (tratamiento == "Fármaco")
+prob_rr <- exp(log_riesgo)
+prob_rr[prob_rr >= 1] <- 0.7
+desfecho <- rbinom(n2, 1, prob_rr)
+
+datos2 <- data.frame(
+  evento = factor(desfecho, levels = c(0,1), labels = c("No", "Sí")),
+  edad = edad,
+  tiene_diabetes = factor(tiene_diabetes, labels = c("No", "Sí")),
+  sexo = sexo,
+  tratamiento = tratamiento
+)
+```
+
+### 3.2 Ajuste del modelo binomial con enlace log
+
+```{r}
+modelo_log <- glm(evento ~ edad + tiene_diabetes + tratamiento + sexo, data = datos2, family = binomial(link = "log"))
+modelo_log %>% 
+  tbl_regression(exponentiate = TRUE, conf.level = 0.95) %>%
+  modify_header(label ~ "Variable explicativa") %>%
+  modify_caption("**Modelo binomial con función de enlace log (riesgo relativo)**")
+```
+
+### 3.3 Evaluación del modelo
+
+```{r}
+datos2_aug <- augment(modelo_log)
+
+# Comentario del ejemplo
+
+
+plot(modelo_log, which = 1)
+
+# Comentario del ejemplo
+
+
+vif(modelo_log)
+
+# Comentario del ejemplo
+
+
+AIC(modelo_log)
+```
+
+### 3.4 Comparación con modelo reducido
+
+```{r}
+modelo_reducido <- glm(evento ~ edad + tratamiento, data = datos2, family = binomial(link = "log"))
+anova(modelo_reducido, modelo_log, test = "Chisq")
+```
+
+
+---
+
+# Referencias
+
+
+
+1. Vittinghoff E, Glidden DV, Shiboski SC, McCulloch CE. *Regression Methods in Biostatistics*. Springer; 2012.  
+2. James G, Witten D, Hastie T, Tibshirani R. *An Introduction to Statistical Learning*. Springer; 2013.

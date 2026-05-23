@@ -1,0 +1,63 @@
+project:
+  type: book
+  output-dir: _book
+
+lang: es
+
+book:
+  title: "R para profesionales de la salud"
+  subtitle: "Manual aplicado para análisis clínico, inferencia, regresión y predicción"
+  author: "MSc. Oswaldo G. E. Espinoza-Hurtado"
+  date: today
+  repo-url: https://github.com/oespinozah/R-para-profesionales-de-la-salud
+  repo-actions: [source, issue]
+  page-footer:
+    left: "R para profesionales de la salud"
+    right: "Código MIT · Contenido CC BY 4.0"
+  chapters:
+    - index.qmd
+    - capitulos/01-introduccion.qmd
+    - capitulos/02-estadistica-descriptiva.qmd
+    - capitulos/03-inferencia-parametrica.qmd
+    - capitulos/04-inferencia-no-parametrica.qmd
+    - capitulos/05-tamano-muestra-potencia.qmd
+    - part: "Regresión"
+      chapters:
+        - capitulos/06-regresion-lineal-simple.qmd
+        - capitulos/07-regresion-lineal-multiple.qmd
+        - capitulos/08-glm-binomial.qmd
+        - capitulos/09-glm-conteo.qmd
+        - capitulos/10-supervivencia-kaplan-meier.qmd
+        - capitulos/11-supervivencia-cox.qmd
+    - part: "Predicción clínica"
+      chapters:
+        - capitulos/12-modelos-predictivos.qmd
+        - capitulos/13-fundamentos-prediccion.qmd
+        - capitulos/14-comparacion-modelos.qmd
+        - capitulos/15-metricas-validacion.qmd
+    - referencias.qmd
+
+format:
+  html:
+    theme:
+      light: cosmo
+    css: assets/css/manual.css
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-copy: true
+    code-overflow: wrap
+    smooth-scroll: true
+    link-external-newwindow: true
+    callout-appearance: simple
+
+execute:
+  warning: false
+  message: false
+  freeze: auto
+
+knitr:
+  opts_chunk:
+    fig.align: center
+    fig.width: 8
+    fig.height: 5

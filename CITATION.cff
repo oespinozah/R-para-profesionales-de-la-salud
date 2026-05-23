@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "Si usas este manual, por favor cítalo."
+title: "R para profesionales de la salud"
+authors:
+  - family-names: "Espinoza-Hurtado"
+    given-names: "Oswaldo G. E."
+license: "MIT AND CC-BY-4.0"
+repository-code: "https://github.com/oespinozah/R-para-profesionales-de-la-salud"
+type: "generic"

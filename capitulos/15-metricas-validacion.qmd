@@ -1,0 +1,455 @@
+﻿---
+title: "15 | Métricas y validación"
+subtitle: "Evaluar desempeño predictivo con criterio clínico"
+---
+
+# Métricas de desempeño y validación de modelos predictivos
+
+El cierre del manual se centra en validación y métricas. La meta es interpretar desempeño predictivo sin perder de vista utilidad clínica, incertidumbre y reproducibilidad.
+
+
+
+------------------------------------------------------------------------
+
+## 1. Carga de paquetes y configuración
+
+```{r setup, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(mgcv)
+library(rpart)
+library(e1071)
+library(pROC)
+library(rpart.plot)
+set.seed(2025)
+```
+
+### 1.1. Funciones auxiliares para evaluación predictiva
+
+```{r}
+metricas_continuas <- function(obs, pred) {
+  tibble(
+    RMSE = sqrt(mean((obs - pred)^2)),
+    MAE  = mean(abs(obs - pred)),
+    R2_aprox = cor(obs, pred)^2
+  ) %>%
+    mutate(across(everything(), ~round(.x, 3)))
+}
+
+metricas_binarias <- function(obs, prob, corte = 0.5) {
+  obs_chr <- as.character(obs)
+  pred_chr <- ifelse(prob >= corte, "Sí", "No")
+  
+  cm <- table(
+    Observado = factor(obs_chr, levels = c("No", "Sí")),
+    Predicho = factor(pred_chr, levels = c("No", "Sí"))
+  )
+  
+  acc <- sum(diag(cm)) / sum(cm)
+  sens <- ifelse(sum(cm["Sí", ]) > 0, cm["Sí", "Sí"] / sum(cm["Sí", ]), NA)
+  esp  <- ifelse(sum(cm["No", ]) > 0, cm["No", "No"] / sum(cm["No", ]), NA)
+  brier <- mean((ifelse(obs_chr == "Sí", 1, 0) - prob)^2)
+  auc <- as.numeric(roc(response = obs_chr, predictor = prob, levels = c("No", "Sí"), quiet = TRUE)$auc)
+  
+  tibble(
+    Accuracy = acc,
+    Sensibilidad = sens,
+    Especificidad = esp,
+    AUC = auc,
+    Brier = brier
+  ) %>%
+    mutate(across(everything(), ~round(.x, 3)))
+}
+
+division_train_test <- function(datos, prop_train = 0.7) {
+  id_train <- sample(seq_len(nrow(datos)), size = floor(prop_train * nrow(datos)))
+  list(
+    train = datos[id_train, ],
+    test = datos[-id_train, ]
+  )
+}
+
+cv_binaria_glm <- function(datos, k = 5) {
+  folds <- sample(rep(1:k, length.out = nrow(datos)))
+  
+  resultados <- map_dfr(1:k, function(i) {
+    train <- datos[folds != i, ]
+    test  <- datos[folds == i, ]
+    
+    mod <- glm(evento ~ edad + imc + glucosa + sexo + tabaquismo,
+               data = train, family = binomial)
+    
+    prob <- predict(mod, newdata = test, type = "response")
+    metricas_binarias(test$evento, prob) %>%
+      mutate(Fold = i)
+  })
+  
+  resultados
+}
+
+bootstrap_auc_glm <- function(datos, B = 100) {
+  aucs <- numeric(B)
+  
+  for (b in 1:B) {
+    id_boot <- sample(seq_len(nrow(datos)), replace = TRUE)
+    boot <- datos[id_boot, ]
+    
+    mod <- glm(evento ~ edad + imc + glucosa + sexo + tabaquismo,
+               data = boot, family = binomial)
+    
+    prob <- predict(mod, newdata = boot, type = "response")
+    aucs[b] <- as.numeric(roc(response = boot$evento,
+                              predictor = prob,
+                              levels = c("No", "Sí"),
+                              quiet = TRUE)$auc)
+  }
+  
+  tibble(
+    AUC_media = mean(aucs),
+    AUC_sd = sd(aucs),
+    AUC_min = min(aucs),
+    AUC_max = max(aucs)
+  ) %>%
+    mutate(across(everything(), ~round(.x, 3)))
+}
+```
+
+
+------------------------------------------------------------------------
+
+## 2. Escenario 1: Desempeño en desenlace continuo
+
+### 2.1 Simulación de datos clínicos
+
+```{r}
+n1 <- 300
+
+edad <- round(rnorm(n1, mean = 58, sd = 10))
+imc <- round(rnorm(n1, mean = 28, sd = 4), 1)
+adherencia <- round(runif(n1, min = 40, max = 100), 0)
+
+hemoglobina <- 9 +
+  0.04 * edad -
+  0.015 * (edad - 60)^2 / 5 +
+  0.10 * imc -
+  0.003 * (adherencia - 70)^2 +
+  rnorm(n1, mean = 0, sd = 0.8)
+
+datos1 <- data.frame(
+  edad = edad,
+  imc = imc,
+  adherencia = adherencia,
+  hemoglobina = round(hemoglobina, 2)
+)
+
+head(datos1)
+```
+
+### 2.2 División en entrenamiento y prueba
+
+```{r}
+set.seed(2025)
+split1 <- division_train_test(datos1, prop_train = 0.7)
+train1 <- split1$train
+test1  <- split1$test
+```
+
+### 2.3 Regresión lineal: validación aparente
+
+```{r}
+modelo_lm <- lm(hemoglobina ~ edad + imc + adherencia, data = train1)
+
+pred_aparente_lm <- predict(modelo_lm, newdata = train1)
+
+metricas_continuas(train1$hemoglobina, pred_aparente_lm) %>%
+  mutate(Modelo = "Regresión lineal", Validacion = "Aparente") %>%
+  select(Modelo, Validacion, everything())
+```
+
+### 2.4 Regresión lineal: desempeño en prueba
+
+```{r}
+pred_test_lm <- predict(modelo_lm, newdata = test1)
+
+metricas_continuas(test1$hemoglobina, pred_test_lm) %>%
+  mutate(Modelo = "Regresión lineal", Validacion = "Train/Test") %>%
+  select(Modelo, Validacion, everything())
+```
+
+### 2.5. GAM: validación aparente
+
+```{r}
+modelo_gam_cont <- gam(hemoglobina ~ s(edad) + s(imc) + s(adherencia),
+                       data = train1)
+
+pred_aparente_gam <- predict(modelo_gam_cont, newdata = train1)
+
+metricas_continuas(train1$hemoglobina, pred_aparente_gam) %>%
+  mutate(Modelo = "GAM", Validacion = "Aparente") %>%
+  select(Modelo, Validacion, everything())
+```
+
+### 2.6 GAM: desempeño en prueba
+
+```{r}
+pred_test_gam <- predict(modelo_gam_cont, newdata = test1)
+
+metricas_continuas(test1$hemoglobina, pred_test_gam) %>%
+  mutate(Modelo = "GAM", Validacion = "Train/Test") %>%
+  select(Modelo, Validacion, everything())
+```
+
+### 2.7 Comparación general
+
+```{r}
+bind_rows(
+  metricas_continuas(train1$hemoglobina, pred_aparente_lm) %>% mutate(Modelo = "Regresión lineal", Validacion = "Aparente"),
+  metricas_continuas(test1$hemoglobina, pred_test_lm) %>% mutate(Modelo = "Regresión lineal", Validacion = "Train/Test"),
+  metricas_continuas(train1$hemoglobina, pred_aparente_gam) %>% mutate(Modelo = "GAM", Validacion = "Aparente"),
+  metricas_continuas(test1$hemoglobina, pred_test_gam) %>% mutate(Modelo = "GAM", Validacion = "Train/Test")
+) %>%
+  select(Modelo, Validacion, everything())
+```
+
+
+## 3. Escenario 2: Desempeño en desenlace binario
+
+### 3.1 Simulación de datos clínicos
+
+```{r}
+n2 <- 350
+
+edad <- round(rnorm(n2, mean = 62, sd = 11))
+imc <- round(rnorm(n2, mean = 29, sd = 4), 1)
+glucosa <- round(rnorm(n2, mean = 118, sd = 22), 0)
+sexo <- factor(sample(c("Mujer", "Hombre"), n2, replace = TRUE))
+tabaquismo <- factor(sample(c("No", "Sí"), n2, replace = TRUE, prob = c(0.7, 0.3)))
+
+lp <- -11 +
+  0.05 * edad +
+  0.9 * (sexo == "Hombre") +
+  0.8 * (tabaquismo == "Sí") +
+  0.03 * glucosa -
+  0.002 * (glucosa - 120)^2 +
+  0.12 * imc
+
+prob <- plogis(lp)
+evento <- rbinom(n2, size = 1, prob = prob)
+
+datos2 <- data.frame(
+  edad = edad,
+  imc = imc,
+  glucosa = glucosa,
+  sexo = sexo,
+  tabaquismo = tabaquismo,
+  evento = factor(evento, labels = c("No", "Sí"))
+)
+
+head(datos2)
+```
+
+### 3.2 División en entrenamiento y prueba
+
+```{r}
+set.seed(2025)
+split2 <- division_train_test(datos2, prop_train = 0.7)
+train2 <- split2$train
+test2  <- split2$test
+```
+
+### 3.3 Modelo 1: GLM (regresión logística)
+
+Validación aparente
+
+```{r}
+modelo_glm <- glm(evento ~ edad + imc + glucosa + sexo + tabaquismo,
+                  data = train2,
+                  family = binomial)
+
+prob_aparente_glm <- predict(modelo_glm, newdata = train2, type = "response")
+
+metricas_binarias(train2$evento, prob_aparente_glm) %>%
+  mutate(Modelo = "GLM", Validacion = "Aparente") %>%
+  select(Modelo, Validacion, everything())
+```
+
+Desempeño en prueba
+
+```{r}
+prob_test_glm <- predict(modelo_glm, newdata = test2, type = "response")
+
+metricas_binarias(test2$evento, prob_test_glm) %>%
+  mutate(Modelo = "GLM", Validacion = "Train/Test") %>%
+  select(Modelo, Validacion, everything())
+```
+
+### 3.4 Modelo 2: GAM binario
+
+Validación aparente
+
+```{r}
+modelo_gam_bin <- gam(evento ~ s(edad) + s(imc) + s(glucosa) + sexo + tabaquismo,
+                      data = train2,
+                      family = binomial)
+
+prob_aparente_gam <- predict(modelo_gam_bin, newdata = train2, type = "response")
+
+metricas_binarias(train2$evento, prob_aparente_gam) %>%
+  mutate(Modelo = "GAM binario", Validacion = "Aparente") %>%
+  select(Modelo, Validacion, everything())
+```
+
+Desempeño en prueba
+
+```{r}
+prob_test_gam <- predict(modelo_gam_bin, newdata = test2, type = "response")
+
+metricas_binarias(test2$evento, prob_test_gam) %>%
+  mutate(Modelo = "GAM binario", Validacion = "Train/Test") %>%
+  select(Modelo, Validacion, everything())
+```
+
+### 3.5. Modelo 3: Árbol de decisión
+
+Ajuste del modelo y visualización
+
+```{r}
+modelo_arbol <- rpart(evento ~ edad + imc + glucosa + sexo + tabaquismo,
+                      data = train2,
+                      method = "class")
+
+rpart.plot(modelo_arbol, type = 2, extra = 104, fallen.leaves = TRUE)
+```
+
+Validación aparente
+
+```{r}
+prob_aparente_arbol <- predict(modelo_arbol, newdata = train2, type = "prob")[, "Sí"]
+
+metricas_binarias(train2$evento, prob_aparente_arbol) %>%
+  mutate(Modelo = "Árbol de decisión", Validacion = "Aparente") %>%
+  select(Modelo, Validacion, everything())
+```
+
+Desempeño en prueba
+
+```{r}
+prob_test_arbol <- predict(modelo_arbol, newdata = test2, type = "prob")[, "Sí"]
+
+metricas_binarias(test2$evento, prob_test_arbol) %>%
+  mutate(Modelo = "Árbol de decisión", Validacion = "Train/Test") %>%
+  select(Modelo, Validacion, everything())
+```
+
+### 3.6 Modelo 4: Support Vector Machine (SVM)
+
+Ajuste del modelo
+
+```{r}
+modelo_svm <- svm(evento ~ edad + imc + glucosa + sexo + tabaquismo,
+                  data = train2,
+                  kernel = "radial",
+                  probability = TRUE)
+```
+
+Validación aparente
+
+```{r}
+pred_aparente_svm <- predict(modelo_svm, newdata = train2, probability = TRUE)
+prob_aparente_svm <- attr(pred_aparente_svm, "probabilities")[, "Sí"]
+
+metricas_binarias(train2$evento, prob_aparente_svm) %>%
+  mutate(Modelo = "SVM", Validacion = "Aparente") %>%
+  select(Modelo, Validacion, everything())
+```
+
+
+Desempeño en prueba
+
+```{r}
+pred_test_svm <- predict(modelo_svm, newdata = test2, probability = TRUE)
+prob_test_svm <- attr(pred_test_svm, "probabilities")[, "Sí"]
+
+metricas_binarias(test2$evento, prob_test_svm) %>%
+  mutate(Modelo = "SVM", Validacion = "Train/Test") %>%
+  select(Modelo, Validacion, everything())
+```
+
+
+### 3.7 Comparación general de modelos binarios
+
+```{r}
+bind_rows(
+  metricas_binarias(train2$evento, prob_aparente_glm) %>% mutate(Modelo = "GLM", Validacion = "Aparente"),
+  metricas_binarias(test2$evento, prob_test_glm) %>% mutate(Modelo = "GLM", Validacion = "Train/Test"),
+  metricas_binarias(train2$evento, prob_aparente_gam) %>% mutate(Modelo = "GAM binario", Validacion = "Aparente"),
+  metricas_binarias(test2$evento, prob_test_gam) %>% mutate(Modelo = "GAM binario", Validacion = "Train/Test"),
+  metricas_binarias(train2$evento, prob_aparente_arbol) %>% mutate(Modelo = "Árbol de decisión", Validacion = "Aparente"),
+  metricas_binarias(test2$evento, prob_test_arbol) %>% mutate(Modelo = "Árbol de decisión", Validacion = "Train/Test"),
+  metricas_binarias(train2$evento, prob_aparente_svm) %>% mutate(Modelo = "SVM", Validacion = "Aparente"),
+  metricas_binarias(test2$evento, prob_test_svm) %>% mutate(Modelo = "SVM", Validacion = "Train/Test")
+) %>%
+  select(Modelo, Validacion, everything())
+```
+
+### 3.8 Visualización simple de curvas ROC
+
+```{r}
+roc_glm <- roc(test2$evento, prob_test_glm, levels = c("No", "Sí"), quiet = TRUE)
+roc_gam <- roc(test2$evento, prob_test_gam, levels = c("No", "Sí"), quiet = TRUE)
+roc_arb <- roc(test2$evento, prob_test_arbol, levels = c("No", "Sí"), quiet = TRUE)
+roc_svm <- roc(test2$evento, prob_test_svm, levels = c("No", "Sí"), quiet = TRUE)
+
+plot(roc_glm, col = "blue", main = "Curvas ROC en conjunto de prueba")
+plot(roc_gam, col = "darkgreen", add = TRUE)
+plot(roc_arb, col = "orange", add = TRUE)
+plot(roc_svm, col = "red", add = TRUE)
+
+legend("bottomright",
+       legend = c("GLM", "GAM", "Árbol", "SVM"),
+       col = c("blue", "darkgreen", "orange", "red"),
+       lwd = 2)
+```
+
+
+### 4.1 Validación cruzada con GLM
+
+Validación cruzada de 5 particiones
+
+```{r}
+resultados_cv <- cv_binaria_glm(datos2, k = 5)
+resultados_cv
+```
+
+Promedio de métricas en validación cruzada
+
+```{r}
+resultados_cv %>%
+  summarise(
+    Accuracy = mean(Accuracy),
+    Sensibilidad = mean(Sensibilidad),
+    Especificidad = mean(Especificidad),
+    AUC = mean(AUC),
+    Brier = mean(Brier)
+  ) %>%
+  mutate(across(everything(), ~round(.x, 3)))
+```
+
+### 4.2 Bootstrap con GLM
+
+Estimación bootstrap de AUC aparente
+
+```{r}
+bootstrap_auc_glm(datos2, B = 100)
+```
+
+
+------------------------------------------------------------------------
+
+# Referencias
+
+
+
+1. Steyerberg EW. Clinical Prediction Models: A Practical Approach to Development, Validation, and Updating. 2nd ed. Springer; 2019.
+2. Harrell FE. Regression Modeling Strategies. 2nd ed. Springer; 2015.
+3. Wood SN. Generalized Additive Models: An Introduction with R. 2nd ed. Chapman & Hall/CRC; 2017.
+4. James G, Witten D, Hastie T, Tibshirani R. An Introduction to Statistical Learning. 2nd ed. Springer; 2021.

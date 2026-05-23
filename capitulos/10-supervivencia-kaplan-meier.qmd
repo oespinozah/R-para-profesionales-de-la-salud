@@ -1,0 +1,91 @@
+﻿---
+title: "10 | Supervivencia: Kaplan-Meier"
+subtitle: "Tiempo hasta evento en investigación clínica"
+---
+
+# Análisis de supervivencia con Kaplan-Meier
+
+Algunas preguntas clínicas dependen del tiempo hasta que ocurre un evento. Este capítulo introduce curvas de supervivencia y comparación entre grupos.
+
+
+
+---
+
+## 1. Carga de paquetes y configuración
+
+```{r setup, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(survival)
+library(survminer)
+library(gtsummary)
+set.seed(2025)
+```
+
+
+---
+
+## 2. Escenario 1: Seguimiento de pacientes post-cirugía
+
+### 2.1 Simulación de datos clínicos
+
+```{r}
+n <- 150
+grupo <- factor(sample(c("Estándar", "Avanzado"), n, replace = TRUE))
+tiempo <- rexp(n, rate = 0.05) + ifelse(grupo == "Avanzado", 2, 0)
+censura <- rbinom(n, 1, 0.85)
+tiempo_obs <- pmin(tiempo, 20)
+estado <- as.numeric(tiempo <= 20) * censura
+
+datos1 <- data.frame(tiempo = tiempo_obs,
+                     evento = estado,
+                     grupo)
+```
+
+### 2.2 Curvas de Kaplan-Meier
+
+```{r}
+sobrevida_km <- survfit(Surv(tiempo, evento) ~ grupo, data = datos1)
+ggsurvplot(sobrevida_km, data = datos1, pval = TRUE, conf.int = TRUE,
+           risk.table = TRUE, surv.median.line = "hv", legend.title = "Grupo",
+           xlab = "Tiempo de seguimiento (meses)", ylab = "Probabilidad de supervivencia")
+```
+
+---
+
+## 3. Escenario 2: Tratamiento de pacientes con terapia inmunológica
+
+### 3.1 Simulación de datos
+
+```{r}
+n2 <- 180
+tratamiento <- factor(sample(c("Convencional", "Inmunoterapia"), n2, replace = TRUE))
+edad <- rnorm(n2, mean = 60, sd = 10)
+base_time <- rexp(n2, rate = 0.07)
+adjusted_time <- base_time * ifelse(tratamiento == "Inmunoterapia", 1.3, 1.0)
+censura2 <- rbinom(n2, 1, 0.90)
+tiempo_obs2 <- pmin(adjusted_time, 24)
+evento2 <- as.numeric(adjusted_time <= 24) * censura2
+
+datos2 <- data.frame(tiempo = tiempo_obs2,
+                     evento = evento2,
+                     tratamiento,
+                     edad)
+```
+
+### 3.2 Curva Kaplan-Meier por grupo de tratamiento
+
+```{r}
+sobrevida_km2 <- survfit(Surv(tiempo, evento) ~ tratamiento, data = datos2)
+ggsurvplot(sobrevida_km2, data = datos2, pval = TRUE, conf.int = FALSE,
+           risk.table = TRUE, surv.median.line = "hv", legend.title = "Tratamiento",
+           xlab = "Tiempo (meses)", ylab = "Supervivencia acumulada")
+```
+
+---
+
+# Referencias
+
+
+
+1. Kleinbaum DG, Klein M. *Survival Analysis: A Self-Learning Text*. Springer; 2012.
+2. Therneau TM, Grambsch PM. *Modeling Survival Data: Extending the Cox Model*. Springer; 2000.

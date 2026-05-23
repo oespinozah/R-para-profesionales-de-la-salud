@@ -1,0 +1,54 @@
+name: Render Quarto manual
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+
+      - name: Install R packages
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::tidyverse
+            any::rio
+            any::gtsummary
+            any::gt
+            any::broom
+            any::car
+            any::epiR
+            any::pwr
+            any::survival
+            any::survminer
+            any::MASS
+            any::sandwich
+            any::lmtest
+            any::rpart
+            any::rpart.plot
+            any::e1071
+            any::mgcv
+            any::pROC
+            any::mice
+
+      - name: Render
+        uses: quarto-dev/quarto-actions/render@v2
+
+      - name: Upload rendered manual
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-html
+          path: _book

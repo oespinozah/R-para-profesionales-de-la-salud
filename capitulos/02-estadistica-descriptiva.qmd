@@ -1,0 +1,421 @@
+﻿---
+title: "02 | Estadística descriptiva"
+subtitle: "Resumir, visualizar y comunicar datos clínicos"
+---
+
+# Estadística descriptiva con R
+
+Después de preparar el entorno, el siguiente paso es mirar los datos con calma. Aquí se resumen variables, se construyen tablas y se crean visualizaciones útiles para una primera lectura clínica.
+
+
+
+
+La estadística descriptiva permite resumir, organizar y visualizar conjuntos de datos para comprender sus características principales. En R, existen múltiples funciones y paquetes que facilitan este análisis. Este capítulo introduce las herramientas básicas de estadística descriptiva utilizando R y el paquete `tidyverse`.
+
+---
+
+### Carga de paquetes y conjunto de datos
+
+Primero, cargamos los paquetes necesarios y simulamos un conjunto de datos:
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(rio)
+```
+
+También vamos a cargar unos paquetes que utilizaremos más adelante. No olvides que, en caso de no tenerlos, deberá instalarlos
+
+```{r, warning=FALSE, message=FALSE}
+library(gtsummary)
+library(gt)
+```
+
+
+```{r, warning=FALSE, message=FALSE, eval=FALSE, include=FALSE}
+# Comentario del ejemplo
+
+
+set.seed(2025) # Semilla de aleatoriedad para replicar
+datos <- tibble(
+  ID = 1:500,
+  edad = sample(18:80, 500, replace = TRUE),
+  sexo = sample(c("Femenino", "Masculino"), 500, replace = TRUE),
+  actividad = sample(c("Agricultura", "Ganaderia", "Comercio", "Mineria"), 500, replace = TRUE),
+  # Nivel_Educativo = sample(c("Inicial", "Primaria", "Secundaria", "Superior", "Posgrado"), 500, replace = TRUE),
+  # Actividad = sample(c(1,2,3,4), 500, replace = TRUE),
+  presion_arterial = rnorm(500, mean = 120, sd = 15),
+  glucosa = rnorm(500, mean = 180, sd = 25),
+  diabetes = sample(c("No", "Si"), 500, replace = TRUE),
+  hipertension = sample(c("No", "Si"), 500, replace = TRUE)
+)
+
+head(datos)
+datos %>% export("../datos/ejemplo-descriptivo.xlsx")
+
+```
+
+Recordando: Usaremos la función `import` del paquete `rio` para importar los datos que están en formato xlsx (Excel). Estos datos han sido simulados para este capítulo. No provienen de ninguna fuente real.
+
+```{r}
+datos <- import("../datos/analisis-descriptivo.xlsx")
+```
+
+También podemos previsualizar los datos:
+
+```{r}
+datos %>% head()
+datos %>% head(10) # Podemos indicar
+datos %>% glimpse()
+datos %>% summary()
+```
+
+```{r, eval=FALSE}
+datos %>% View()
+```
+
+
+---
+
+## Preparando los datos
+
+Antes de obtener las medidas de resumen, es necesario que preparemos los datos.
+
+Vamos a suponer que solo queremos a los mayores de edad. Entonces filtraremos los datos:
+
+```{r}
+datos <- datos %>% 
+  filter(Edad >= 18)
+```
+
+Ahora vamos a definir el tipo de las variables
+
+```{r}
+datos <- datos %>% 
+  mutate(
+    Sexo = if_else(Sexo == "Masculino", 1, 2),
+    Sexo = factor(Sexo, labels = c("Masculino", "Femenino")),
+    Nivel_Educativo = case_when(
+      Nivel_Educativo == "Inicial" ~ 1,
+      Nivel_Educativo == "Primaria" ~ 2,
+      Nivel_Educativo == "Secundaria" ~ 3,
+      Nivel_Educativo == "Superior" ~ 4,
+      Nivel_Educativo == "Posgrado" ~ 5,
+    ),
+    Nivel_Educativo = factor(Nivel_Educativo, labels = c("Inicial", "Primaria", "Secundaria", "Superior", "Posgrado")),
+    Actividad = factor(Actividad, labels = c("Estudiante", "Oficinista", "Agricultor", "Ganadero"))
+  )
+```
+
+---
+
+## Medidas de tendencia central
+
+Recordemos las principales medidas de tendencia central:
+
+ - Media
+ - Mediana
+ - Moda
+
+```{r}
+datos %>% 
+  summarise(
+    media_edad = mean(Edad),
+    mediana_edad = median(Edad),
+    moda_edad = Edad %>% table() %>% which.max() %>% names()
+  )
+```
+
+Y si deseamos, podemos calcular las medidas de tendencia central agrupando por una (o más) variable
+
+```{r}
+datos %>%
+  group_by(Sexo) %>%
+  summarise(
+    media_edad = mean(Edad),
+    mediana_edad = median(Edad),
+    moda_edad = Edad %>% table() %>% which.max() %>% names()
+  )
+```
+
+
+*Nota*: R no tiene una función base para moda, por eso usamos una combinación de funciones.
+
+---
+
+
+## Medidas de dispersión
+
+Veremos la variable Presión_Arterial. Como hemos visto arriba, esta variable tiene datos perdidos. Así que para poder obtener las medidas, añadimos un comando a la función
+
+```{r}
+datos %>% 
+  summarise(
+    desviacion = sd(Presion_Arterial, na.rm = TRUE),
+    varianza = var(Presion_Arterial, na.rm = TRUE),
+    rango = max(Presion_Arterial, na.rm = TRUE) - min(Presion_Arterial, na.rm = TRUE),
+    IQR = IQR(Presion_Arterial, na.rm = TRUE)
+  )
+```
+
+
+## Tablas de frecuencia
+
+Frecuencia absoluta y relativa
+
+```{r}
+datos %>%
+  count(Sexo) %>%
+  mutate(
+    Frecuencia_Relativa = n / sum(n),
+    Porcentaje = round(Frecuencia_Relativa * 100, 1)
+  )
+```
+
+## Intervalo de confianza
+
+
+```{r}
+resumen <- datos %>%
+  group_by(Sexo) %>%
+  summarise(
+    media = mean(Presion_Arterial, na.rm = TRUE),
+    se = sd(Presion_Arterial, na.rm = TRUE) / sqrt(n()),
+    n = n()
+  ) %>%
+  mutate(
+    ic_inferior = media - qt(0.975, df = n - 1) * se,
+    ic_superior = media + qt(0.975, df = n - 1) * se
+  )
+resumen
+```
+
+
+---
+
+## Visualización de datos
+
+### Histograma
+
+```{r}
+datos %>%
+  ggplot(aes(x = Edad)) +
+  geom_histogram(binwidth = 5, fill = "steelblue", color = "white") +
+  labs(title = "Distribución de Edad")
+```
+
+```{r}
+datos %>%
+  ggplot(aes(x = Colesterol)) +
+  geom_histogram(binwidth = 5, fill = "steelblue", color = "white") +
+  labs(title = "Distribución de Edad")
+```
+
+### Gráfico de cajas
+
+```{r}
+datos %>%
+  ggplot(aes(x = Sexo, y = Presion_Arterial)) +
+  geom_boxplot(fill = "lightgreen") +
+  labs(title = "Presión Arterial por Sexo")
+```
+
+
+### Gráfico de barras
+
+```{r}
+datos %>%
+  ggplot(aes(x = Sexo)) +
+  geom_bar()
+```
+
+Pero, si tenemos los datos ya contados
+
+```{r}
+datos %>%
+  count(Sexo) %>% 
+  ggplot(aes(x = Sexo, y = n)) +
+  geom_bar(stat = "identity")
+```
+
+```{r}
+datos %>%
+  count(Sexo) %>% 
+  ggplot(aes(x = Sexo, y = n)) +
+  geom_col()
+```
+
+Podemos girar el gráfico:
+
+```{r}
+datos %>%
+  count(Sexo) %>% 
+  ggplot(aes(x = Sexo, y = n)) +
+  geom_col() +
+  coord_flip()
+```
+
+
+```{r}
+ggplot(resumen, aes(x = Sexo, y = media, fill = Sexo)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_errorbar(aes(ymin = ic_inferior, ymax = ic_superior), width = 0.2) +
+  labs(title = "Media de Presión Arterial por Sexo\ncon Intervalo de Confianza del 95%",
+       y = "Presión Arterial (mmHg)",
+       x = "Sexo") +
+  theme_minimal()
+```
+
+
+# Tablas descriptivas con `gtsummary`
+
+
+
+El paquete `gtsummary` permite generar tablas de resumen descriptivo automáticamente, con formato limpio y opciones personalizables. Es muy útil para reportes científicos, artículos médicos y análisis clínicos.
+
+## Crear una tabla descriptiva básica
+
+```{r}
+datos %>%
+  select(Sexo, Edad, Presion_Arterial, Colesterol) %>%
+  tbl_summary(missing = "no")
+```
+
+Esto genera una tabla con:
+
+  - conteos y porcentajes para variables categóricas (Sexo)
+  - media (DE) o mediana (RIC) para variables numéricas
+
+(para este ejemplo pediremos)
+
+## Mostrar media y desviación estándar
+
+```{r}
+datos %>%
+  select(Sexo, Edad, Presion_Arterial, Colesterol) %>%
+  tbl_summary(
+    statistic = all_continuous() ~ "{mean} ({sd})",
+    missing = "no"
+  )
+```
+
+
+## Tabla comparativa entre grupos
+
+```{r}
+datos %>%
+  select(Sexo, Edad, Presion_Arterial, Colesterol) %>%
+  tbl_summary(
+    by = Sexo,
+    statistic = all_continuous() ~ "{mean} ({sd})",
+    missing = "no"
+  ) 
+```
+
+
+## Personalización
+
+### Añadir una columna de “Total”
+
+```{r}
+datos %>%
+  select(Sexo, Edad, Presion_Arterial, Colesterol) %>%
+  tbl_summary(
+    by = Sexo,
+    statistic = all_continuous() ~ "{mean} ({sd})",
+    missing = "no"
+  ) %>%
+  add_overall() # Con esto añadimos el total
+```
+
+
+### Etiquetas personalizadas para las variables
+
+```{r}
+datos %>%
+  select(Sexo, Edad, Presion_Arterial, Colesterol) %>%
+   tbl_summary(
+    by = Sexo,
+    statistic = all_continuous() ~ "{mean} ({sd})",
+    missing = "no",
+    label = list(
+      Edad ~ "Edad (años)",
+      Presion_Arterial ~ "Presión Arterial (mmHg)",
+      Colesterol ~ "Colesterol (mg/dL)"
+    )
+  )
+```
+
+### Añadir un título o caption a la tabla + Aplicar negrita a las etiquetas
+
+
+```{r}
+datos %>%
+  tbl_summary(
+    statistic = all_continuous() ~ "{mean} ({sd})",
+    missing = "no",
+    label = list(
+      Edad ~ "Edad (años)",
+      Presion_Arterial ~ "Presión Arterial (mmHg)",
+      Colesterol ~ "Colesterol (mg/dL)"
+    )
+  )%>%
+  modify_caption("**Tabla 1. Características basales de los participantes**") %>%
+  bold_labels()
+
+```
+
+
+### Añadimos el intervalo de confianza
+
+
+```{r}
+datos %>%
+  tbl_summary(
+    statistic = all_continuous() ~ "{mean} ({sd})",
+    missing = "no",
+    label = list(
+      Edad ~ "Edad (años)",
+      Presion_Arterial ~ "Presión Arterial (mmHg)",
+      Colesterol ~ "Colesterol (mg/dL)"
+    )
+  )%>%
+  modify_caption("**Tabla 1. Características basales de los participantes**") %>%
+  add_ci() %>% 
+  bold_labels()
+
+```
+
+
+## Exportar la tabla
+
+```{r, eval=FALSE}
+datos %>%
+  tbl_summary(
+    statistic = all_continuous() ~ "{mean} ({sd})",
+    missing = "no",
+    label = list(
+      Edad ~ "Edad (años)",
+      Presion_Arterial ~ "Presión Arterial (mmHg)",
+      Colesterol ~ "Colesterol (mg/dL)"
+    )
+  )%>%
+  modify_caption("**Tabla 1. Características basales de los participantes**") %>%
+  bold_labels() %>%
+  add_ci() %>% 
+  as_gt() %>%  
+  gt::tab_caption("Tabla 1. Características basales de los participantes**") %>% 
+  gt::gtsave("../assets/img/tabla_resumen.png")
+```
+
+
+
+
+---
+
+# Referencias
+
+
+
+1. Wickham, H., & Grolemund, G. (2017). R for data science (Vol. 2). Sebastopol, CA: O'Reilly.
+
+---

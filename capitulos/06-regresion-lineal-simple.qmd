@@ -1,0 +1,173 @@
+﻿---
+title: "06 | Regresión lineal simple"
+subtitle: "Modelar relaciones entre dos variables"
+---
+
+s
+# Regresión lineal simple
+
+La regresión inicia el bloque de modelamiento. Aquí se estudia una relación sencilla entre un desenlace continuo y un predictor, cuidando supuestos e interpretación.
+
+
+
+---
+
+### Carga de paquetes y datos simulados
+
+```{r setup, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(broom)
+set.seed(2025)
+```
+
+## 1. Introducción a la Regresión Lineal Simple
+
+La regresión lineal simple permite cuantificar y modelar la relación entre una variable predictora (X) y una variable de resultado (Y). Se asume que esta relación puede representarse por una línea recta.
+
+## 2. Ejemplo práctico con datos simulados
+
+```{r}
+# Comentario del ejemplo
+
+
+n <- 100
+x <- rnorm(n, 50, 10)
+y <- 5 + 1.8 * x + rnorm(n, 0, 10)
+datos <- data.frame(x = x, y = y)
+
+modelo <- lm(y ~ x, data = datos)
+tidy(modelo)
+```
+
+Interpretamos el intercepto como el valor promedio de `y` cuando `x = 0`, y la pendiente como el cambio promedio en `y` por cada unidad adicional en `x`.
+
+## 3. Visualización del modelo
+
+```{r}
+ggplot(datos, aes(x = x, y = y)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(title = "Regresión Lineal Simple",
+       x = "Variable predictora (x)",
+       y = "Variable respuesta (y)")
+```
+
+## 4. Evaluación de residuos
+
+```{r}
+datos <- datos %>% mutate(y_hat = predict(modelo), residuo = y - y_hat)
+head(datos)
+```
+
+## 5. Evaluación de supuestos
+
+### 5.1 Linealidad
+
+```{r}
+ggplot(datos, aes(x = x, y = residuo)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(title = "Evaluación de Linealidad",
+       x = "x",
+       y = "Residuos")
+```
+
+### 5.2 Homocedasticidad
+
+```{r}
+ggplot(datos, aes(x = y_hat, y = residuo)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(title = "Evaluación de Homocedasticidad",
+       x = "Valores ajustados",
+       y = "Residuos")
+```
+
+### 5.3 Normalidad de los errores
+
+```{r}
+ggplot(datos, aes(sample = residuo)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "QQ plot de residuos")
+```
+
+## 6. Intervalo de confianza y p-valor
+
+```{r}
+confint(modelo)
+summary(modelo)
+```
+
+Un intervalo que no incluye cero indica que el coeficiente es estadísticamente significativo.
+
+## 7. Ejemplo con variable categórica (dicotómica)
+
+```{r}
+grupo <- rep(c(0, 1), each = 50)
+presion <- 120 - 11 * grupo + rnorm(100, 0, 5)
+df <- data.frame(grupo = factor(grupo, labels = c("Control", "Tratamiento")), presion = presion)
+modelo2 <- lm(presion ~ grupo, data = df)
+tidy(modelo2)
+```
+
+```{r}
+ggplot(df, aes(x = grupo, y = presion)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(title = "Diferencia entre grupos",
+       y = "Presión arterial")
+```
+
+## 8. Ejemplo con variable numérica y violación de supuestos
+
+En este ejemplo simularemos una relación no lineal, lo cual viola el supuesto de linealidad de la regresión.
+
+```{r}
+set.seed(2025)
+x_nl <- runif(150, 0, 10)
+y_nl <- 2 + 4 * sin(x_nl) + rnorm(150, 0, 0.8)
+df_nl <- data.frame(x = x_nl, y = y_nl)
+modelo_nl <- lm(y ~ x, data = df_nl)
+tidy(modelo_nl)
+```
+
+```{r}
+ggplot(df_nl, aes(x = x, y = y)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  labs(title = "Ajuste lineal sobre relación no lineal",
+       x = "x",
+       y = "y")
+```
+
+### Evaluación de supuestos
+
+```{r}
+df_nl <- df_nl %>% mutate(y_hat = predict(modelo_nl), residuo = y - y_hat)
+
+# Comentario del ejemplo
+
+
+ggplot(df_nl, aes(x = x, y = residuo)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(title = "Residuos vs X: No linealidad evidente")
+
+# Comentario del ejemplo
+
+
+ggplot(df_nl, aes(sample = residuo)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "QQ Plot de residuos")
+```
+
+---
+
+# Referencias
+
+
+
+1. Vittinghoff E, Glidden DV, Shiboski SC, McCulloch CE. *Regression Methods in Biostatistics*. Springer; 2012.  
+2. James G, Witten D, Hastie T, Tibshirani R. *An Introduction to Statistical Learning*. Springer; 2013.

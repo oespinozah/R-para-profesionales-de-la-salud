@@ -39,8 +39,14 @@ vignettes/*.pdf
 # R Environment Variables
 .Renviron
 
-# pkgdown site
-docs/
+# Quarto generated support files
+/.quarto/
+/_freeze/
+/_book/
+/.cache/
+
+# Rendered HTML at the repository root can be regenerated locally.
+/*.html
 
 # translation temp files
 po/*~

@@ -1,0 +1,245 @@
+﻿---
+title: "04 | Inferencia no paramétrica"
+subtitle: "Alternativas robustas para datos clínicos reales"
+---
+
+# Inferencia no paramétrica con R
+
+Cuando los supuestos paramétricos no son razonables, conviene usar alternativas más robustas. Este capítulo muestra cómo elegir e interpretar pruebas no paramétricas.
+
+
+
+
+---
+
+### Carga de paquetes y simulación de datos
+
+Primero, cargamos los paquetes necesarios y simulamos un conjunto de datos:
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(rio)
+library(car)
+```
+
+
+En este capítulo se simulan tres conjuntos de datos para hacer uso de las pruebas:
+
+1. **Dos muestras independientes**
+
+*Contexto:* En un estudio se buscó determinar si existe asociación entre una metodología de enseñanza y los resultados académicos. Para ello, se constratarán los resultados entre un grupo que recibió la metodología tradicional (control) y otro grupo que recibió la nueva metodología (tratamiento) 
+
+2. **Dos muestras pareadas**
+
+*Contexto:* En un estudio de tipo caso-control se buscó determinar si el consumo de un nueva formula de leche en polvo se asocia con cambios en el nivel de hemoglobina
+
+3. **Tabla de contingencia para chi-cuadrado y Fisher**
+
+*Contexto:* Un estudio quiere determinar si existe o no asociación entre recibir visitas de "clown" y el desarrollo de estrés post traumático en niños del área de oncología de un hospital. Para ello, se contrastarán los resultados en tablas de doble entrada
+
+```{r}
+set.seed(2025)
+# Datos para muestras independientes
+
+
+datos_ind <- tibble(
+  ID    = 1:160,
+  grupo = sample(c("Control","Tratamiento"), 160, replace = TRUE),
+  valor = c(rlnorm(80, log(10), 0.4),
+            rlnorm(80, log(30), 0.4) + 15)
+) %>% mutate(grupo = factor(grupo))
+datos_ind %>% head(10)
+# Datos para muestras pareadas
+
+
+datos_par <- tibble(
+  ID     = 1:40,
+  valor1 = rlnorm(40, log(20), 0.5)/15, # control
+  valor2 = valor1 + rlnorm(40, 0, 0.3)/15 + 1 # casos
+) # Como es una simulación, y por ende es algo usado solo para este ejemplo, saldrán valores de hemoglobina muy bajos
+datos_par %>% head(10)
+# Datos para variables categóricas
+
+
+datos_cat <- tibble(
+  ID         = 1:200,
+  Exposición = sample(c("Expuesto","No Expuesto"), 200, replace = TRUE),
+  Estado     = sample(c("Enfermo","Sano"), 200, replace = TRUE)
+)
+datos_cat %>% head(10)
+```
+
+## Paso 1: Planteamos la hipótesis
+
+Para este ejemplo, 3 pares de hipótesis
+
+#### 1. Los resultados y la metodología
+
+- Ho: Las distribuciones de los resultados son iguales en ambos grupos
+- Ha: Las distribuciones de los resultados son diferentes en ambos grupos
+
+#### 2. El nivel de hemoglobina y la fórmula recibida
+
+- Ho: La mediana de la diferencia (formula 1 − formula 2) es cero
+- Ha: La mediana de la diferencia es diferente de cero
+
+#### 3. El estrés postraumático y la terapia
+
+- Ho: Recibir terapia de clown y el estrés postraumático son independientes (no hay asociación)
+- Ho: Recibir terapia de clown y el estrés postraumático no son independientes (no hay asociación)
+
+## Paso 2: Elegimos la prueba de hipótesis a utilizar
+
+### Visualizaremos los datos
+
+#### 1. Los resultados y la metodología
+
+```{r}
+datos_ind %>% 
+  ggplot(aes(grupo, valor, fill = grupo)) +
+  geom_boxplot() + 
+  geom_jitter(width = 0.1, alpha = 0.6) +
+  theme_light() +
+  labs(title = "Distribución de resultado por metodología",
+       x = "Metodología", y = "Resultado")
+```
+
+#### 2. El nivel de hemoglobina y la fórmula recibida
+
+```{r}
+datos_par %>% 
+  pivot_longer(cols = starts_with("valor"),
+               names_to = "formula", values_to = "hemoglobina") %>%
+  mutate(formula = factor(formula, labels = c("Control","Caso"))) %>%
+  ggplot(aes(formula, hemoglobina, fill = formula)) +
+  geom_boxplot() + 
+  geom_jitter(width = 0.1, alpha = 0.6) +
+  theme_light() +
+  labs(title = "Casos vs Controles",
+       x = "Formula", y = "Hemoglobina")
+```
+
+#### 3. El estrés postraumático y la terapia
+
+```{r}
+datos_cat %>% 
+  count(Exposición, Estado) %>% 
+  ggplot(aes(Exposición, n, fill = Estado)) +
+  geom_col(position = "dodge") +
+  theme_light() +
+  labs(title = "Frecuencias por Exposición y Estado",
+       x = "Exposición", y = "Conteo")
+```
+
+### Verificaremos los *supuestos*
+
+#### 1. Los resultados y la metodología
+
+Normalidad
+
+```{r}
+datos_1 <- datos_ind %>% filter(grupo == "Control")
+datos_2 <- datos_ind %>% filter(grupo == "Tratamiento")
+ks.test(datos_1$valor, "pnorm", mean = mean(datos_1$valor), sd = sd(datos_1$valor))
+ks.test(datos_2$valor, "pnorm", mean = mean(datos_2$valor), sd = sd(datos_2$valor))
+```
+
+Homocedasticidad de varianzas
+
+```{r}
+leveneTest(valor ~ grupo, data = datos_ind)
+```
+
+#### 2. El nivel de hemoglobina y la fórmula recibida
+
+Normalidad
+
+```{r}
+ks.test(datos_par$valor1, "pnorm", mean = mean(datos_par$valor1), sd = sd(datos_par$valor1))
+ks.test(datos_par$valor2, "pnorm", mean = mean(datos_par$valor2), sd = sd(datos_par$valor2))
+```
+
+**Tener en cuenta que por el tamaño de muestra, lo adecuado era utilizar la prueba de Shapiro Wilks**
+
+```{r}
+shapiro.test(datos_par$valor1)
+shapiro.test(datos_par$valor2)
+```
+
+
+#### 3. El estrés postraumático y la terapia
+
+Valor esperando
+
+```{r}
+tabla_cat <- chisq.test(table(datos_cat$Exposición, datos_cat$Estado))
+tabla_cat$expected
+```
+
+
+
+## Paso 3. Establecemos criterio (punto de corte)
+
+Vamos a trabajar con un $\alpha$ de 0.05
+
+
+## Paso 4. Calculamos la probabilidad de observar un valor igual o más extremo que la estimación observada asumiendo que la hipótesis nula es verdad (p-valor)
+
+
+#### 1. Los resultados y la metodología
+
+```{r}
+wilcox.test(valor ~ grupo,
+            data    = datos_ind,
+            exact   = FALSE)
+```
+
+#### 2. El nivel de hemoglobina y la fórmula recibida
+
+```{r}
+wilcox.test(datos_par$valor1, datos_par$valor2,
+            paired   = TRUE,
+            exact    = FALSE)
+
+```
+
+
+#### 3. El estrés postraumático y la terapia
+
+```{r}
+chisq.test(table(datos_cat$Exposición, datos_cat$Estado))
+```
+
+Solo para el ejemplo, vamos a mostrar cómo hubiera sido si se utilizaba la prueba exacta de Fisher:
+
+```{r}
+fisher.test(table(datos_cat$Exposición, datos_cat$Estado))
+```
+
+
+## Paso 5. Tomamos una decisión
+
+
+#### 1. Los resultados y la metodología
+
+No Rechazar H0
+
+#### 2. El nivel de hemoglobina y la fórmula recibida
+
+Rechazar H0
+
+#### 3. El estrés postraumático y la terapia
+
+
+No Rechazar H0
+
+---
+
+# Referencias
+
+
+
+1. Wickham, H., & Grolemund, G. (2017). R for data science (Vol. 2). Sebastopol, CA: O'Reilly.
+2. Batra, N., Spina, A., Blomquist, P., Campbell, F., Laurenson-Schafer, H., Florence, I., Fischer, N., Ndiaye, A., Coyer, L., Polonsky, J., Izawa, Y., Bailey, C., Molling, D., Berry, I., Buajitti, E., Mousset, M., Hollis, S., & Lin, W. The Epidemiologist R Handbook. Applied Epi.
+
+---

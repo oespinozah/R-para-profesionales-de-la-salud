@@ -1,0 +1,231 @@
+﻿---
+title: "11 | Regresión de Cox"
+subtitle: "Riesgos proporcionales y extensiones prácticas"
+---
+
+# Modelos de regresión de Cox
+
+Después de Kaplan-Meier, el modelo de Cox permite ajustar por covariables y estimar razones de riesgo en datos de tiempo a evento.
+
+
+
+---
+
+## 1. Carga de paquetes y configuración
+
+```{r setup, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(survival)
+library(survminer)
+library(gtsummary)
+set.seed(2025)
+```
+
+---
+
+## 2. Escenario 1: Análisis clásico de Cox con variable categórica
+
+### 2.1 Simulación de datos clínicos
+
+```{r}
+n1 <- 200
+grupo <- factor(sample(c("Control", "Tratamiento"), n1, replace = TRUE))
+tiempo <- rexp(n1, rate = 0.04) + ifelse(grupo == "Tratamiento", 3, 0)
+censura <- rbinom(n1, 1, 0.85)
+tiempo_obs <- pmin(tiempo, 30)
+evento <- as.numeric(tiempo <= 30) * censura
+
+datos1 <- data.frame(tiempo = tiempo_obs,
+                     evento = evento,
+                     grupo = grupo)
+```
+
+### 2.2 Modelo de Cox y resumen
+
+```{r}
+modelo_cox1 <- coxph(Surv(tiempo, evento) ~ grupo, data = datos1)
+modelo_cox1 %>% 
+  tbl_regression(exp = TRUE) %>% 
+  modify_caption("**Modelo de Cox ajustado por grupo de tratamiento**")
+```
+
+### 2.3 Curva de supervivencia ajustada
+
+```{r}
+sobrevida1 <- survfit(modelo_cox1)
+ggsurvplot(sobrevida1, data = datos1, pval = TRUE, conf.int = TRUE,
+           legend.title = "Grupo", xlab = "Tiempo (meses)",
+           ylab = "Probabilidad de supervivencia")
+```
+
+### 2.4 Evaluación del supuesto de proporcionalidad de riesgos
+
+```{r}
+test_ph1 <- cox.zph(modelo_cox1)
+test_ph1
+plot(test_ph1)
+
+# Comentario del ejemplo
+
+
+surv_fit <- survfit(Surv(tiempo, evento) ~ grupo, data = datos1)
+ggsurvplot(surv_fit, fun = "cloglog", data = datos1, 
+           legend.title = "Grupo", 
+           xlab = "Tiempo (meses)", 
+           ylab = "log(-log(S(t)))")
+```
+
+---
+
+## 3. Escenario 2: Análisis de Cox con variable continua (edad)
+
+### 3.1 Simulación de datos
+
+```{r}
+n2 <- 250
+edad <- rnorm(n2, 65, 10)
+sexo <- factor(sample(c("Mujer", "Hombre"), n2, replace = TRUE))
+tiempo <- rexp(n2, rate = 0.03) * (1 + 0.02 * (edad - 60))
+censura <- rbinom(n2, 1, 0.90)
+tiempo_obs <- pmin(tiempo, 36)
+evento <- as.numeric(tiempo <= 36) * censura
+
+datos2 <- data.frame(tiempo = tiempo_obs,
+                     evento = evento,
+                     edad = edad,
+                     sexo = sexo)
+```
+
+### 3.2 Ajuste del modelo de Cox con edad
+
+```{r}
+modelo_cox2 <- coxph(Surv(tiempo, evento) ~ edad + sexo, data = datos2)
+modelo_cox2 %>% 
+  tbl_regression(exp = TRUE) %>% 
+  modify_caption("**Modelo de Cox ajustado por edad y sexo**")
+```
+
+### 3.3 Evaluación del supuesto de proporcionalidad de riesgos
+
+```{r}
+test_ph2 <- cox.zph(modelo_cox2)
+test_ph2
+plot(test_ph2)
+
+# Comentario del ejemplo
+
+
+surv_fit2 <- survfit(Surv(tiempo, evento) ~ sexo, data = datos2)
+ggsurvplot(surv_fit2, fun = "cloglog", data = datos2, 
+           legend.title = "Sexo", 
+           xlab = "Tiempo (meses)", 
+           ylab = "log(-log(S(t)))")
+```
+
+---
+
+## 4. Escenario 3: Modelo de Cox con interacción
+
+### 4.1 Inclusión de interacción edad × sexo
+
+```{r}
+modelo_interaccion <- coxph(Surv(tiempo, evento) ~ edad * sexo, data = datos2)
+modelo_interaccion %>% 
+  tbl_regression(exp = TRUE) %>% 
+  modify_caption("**Modelo de Cox con interacción Edad × Sexo**")
+```
+
+### 4.2 Evaluación del supuesto de proporcionalidad de riesgos
+
+```{r}
+test_ph3 <- cox.zph(modelo_interaccion)
+test_ph3
+plot(test_ph3)
+
+# Comentario del ejemplo
+
+
+surv_fit3 <- survfit(Surv(tiempo, evento) ~ sexo, data = datos2)
+ggsurvplot(surv_fit3, fun = "cloglog", data = datos2, 
+           legend.title = "Sexo", 
+           xlab = "Tiempo (meses)", 
+           ylab = "log(-log(S(t)))")
+```
+
+---
+
+## 5. Escenario 4: Covariables dependientes del tiempo
+
+### 5.1 Simulación con variable tiempo-dependiente
+
+```{r}
+n3 <- 300
+tratamiento <- factor(sample(c("A", "B"), n3, replace = TRUE))
+basal <- rnorm(n3, 50, 10)
+seguimiento <- 1 + rpois(n3, 5)
+tiempo <- rexp(n3, rate = 0.03) * (ifelse(tratamiento == "B", 0.8, 1))
+censura <- rbinom(n3, 1, 0.85)
+tiempo_obs <- pmin(tiempo, 40)
+evento <- as.numeric(tiempo <= 40) * censura
+
+datos3 <- data.frame(id = 1:n3,
+                     tiempo = tiempo_obs,
+                     evento = evento,
+                     tratamiento = tratamiento,
+                     seguimiento = seguimiento)
+```
+
+### 5.2 Creación de objeto Surv y modelo con tiempo-dependencia
+
+```{r}
+surv_obj <- Surv(datos3$tiempo, datos3$evento)
+modelo_tiempo_dep <- coxph(surv_obj ~ tratamiento + seguimiento, data = datos3)
+modelo_tiempo_dep %>% 
+  tbl_regression(exp = TRUE) %>% 
+  modify_caption("**Modelo de Cox con covariable dependiente del tiempo (seguimiento)**")
+```
+
+### 5.3 Evaluación del supuesto de proporcionalidad de riesgos
+
+```{r}
+test_ph4 <- cox.zph(modelo_tiempo_dep)
+test_ph4
+plot(test_ph4)
+```
+
+---
+
+## 6. Escenario 5: Modelo de Cox estratificado por sexo
+
+### 6.1 Modelo estratificado
+
+```{r}
+modelo_estratificado <- coxph(Surv(tiempo, evento) ~ edad + strata(sexo), data = datos2)
+modelo_estratificado %>% 
+  tbl_regression(exp = TRUE) %>% 
+  modify_caption("**Modelo de Cox estratificado por sexo**")
+```
+
+### 6.2 Evaluación de supuestos en modelo estratificado
+
+```{r}
+test_ph5 <- cox.zph(modelo_estratificado)
+test_ph5
+plot(test_ph5)
+
+# Comentario del ejemplo
+
+
+surv_fit5 <- survfit(Surv(tiempo, evento) ~ sexo, data = datos2)
+ggsurvplot(surv_fit5, fun = "cloglog", data = datos2,
+           legend.title = "Sexo (estrato)",
+           xlab = "Tiempo (meses)",
+           ylab = "log(-log(S(t)))")
+```
+
+---
+
+# Referencias
+
+1. Kleinbaum DG, Klein M. *Survival Analysis: A Self-Learning Text*. Springer; 2012.
+2. Therneau TM, Grambsch PM. *Modeling Survival Data: Extending the Cox Model*. Springer; 2000.

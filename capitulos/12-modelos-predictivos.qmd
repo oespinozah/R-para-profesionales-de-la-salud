@@ -1,0 +1,245 @@
+﻿---
+title: "12 | Modelos predictivos"
+subtitle: "Predicción clínica con modelos clásicos y machine learning"
+---
+
+# Tipos de modelos predictivos en investigación clínica
+
+El bloque final cambia el énfasis desde explicar asociaciones hacia predecir desenlaces. Este capítulo presenta familias de modelos predictivos y el uso de `predict()`.
+
+
+
+------------------------------------------------------------------------
+
+## 1. Carga de paquetes y configuración
+
+```{r setup, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(survival)
+library(survminer)
+library(gtsummary)
+library(rpart)
+library(rpart.plot)
+library(e1071)
+set.seed(2026)
+```
+
+------------------------------------------------------------------------
+
+## 2. Escenario 1: Regresión lineal para desenlace continuo
+
+### 2.1 Simulación de datos clínicos
+
+```{r}
+n1 <- 200
+
+edad <- round(rnorm(n1, mean = 55, sd = 10))
+imc <- round(rnorm(n1, mean = 27, sd = 4), 1)
+adherencia <- round(runif(n1, min = 50, max = 100), 0)
+
+presion_sistolica <- 140 + 
+  0.6 * edad + 
+  1.2 * imc - 
+  0.4 * adherencia + 
+  rnorm(n1, mean = 0, sd = 8)
+
+datos1 <- data.frame(
+  edad = edad,
+  imc = imc,
+  adherencia = adherencia,
+  presion_sistolica = round(presion_sistolica, 1)
+)
+
+head(datos1)
+```
+
+### 2.2 Ajuste del modelo de regresión lineal
+
+```{r}
+modelo_lineal <- lm(presion_sistolica ~ edad + imc + adherencia, data = datos1)
+
+modelo_lineal %>% 
+  tbl_regression() %>% 
+  modify_caption("**Modelo de regresión lineal para presión sistólica**")
+```
+
+### 2.3 Valores *predict*
+
+```{r}
+datos1$prediccion <- predict(modelo_lineal)
+
+datos1 %>% 
+  select(presion_sistolica, prediccion) %>% 
+  head(10)
+```
+
+### 2.4 Gráfico observado vs predicho
+
+```{r}
+ggplot(datos1, aes(x = prediccion, y = presion_sistolica)) +
+  geom_point(alpha = 0.7) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  labs(x = "Valor predicho",
+       y = "Valor observado",
+       title = "Regresión lineal: valores observados vs predichos")
+```
+
+## 3. Escenario 2: Regresión logística para desenlace binario
+
+### 3.1 Simulación de datos clínicos
+
+```{r}
+n2 <- 250
+
+edad <- round(rnorm(n2, mean = 65, sd = 12))
+sexo <- factor(sample(c("Mujer", "Hombre"), n2, replace = TRUE))
+diabetes <- factor(sample(c("No", "Sí"), n2, replace = TRUE, prob = c(0.65, 0.35)))
+imc <- round(rnorm(n2, mean = 29, sd = 5), 1)
+
+lp <- -8 + 0.06 * edad + 0.9 * (sexo == "Hombre") + 1.1 * (diabetes == "Sí") + 0.08 * imc
+prob_evento <- exp(lp) / (1 + exp(lp))
+complicacion <- rbinom(n2, size = 1, prob = prob_evento)
+
+datos2 <- data.frame(
+  edad = edad,
+  sexo = sexo,
+  diabetes = diabetes,
+  imc = imc,
+  complicacion = factor(complicacion, labels = c("No", "Sí"))
+)
+
+head(datos2)
+```
+
+### 3.2 Ajuste del modelo de regresión logística
+
+```{r}
+modelo_logistico <- glm(complicacion ~ edad + sexo + diabetes + imc,
+                        data = datos2,
+                        family = binomial)
+
+modelo_logistico %>% 
+  tbl_regression(exp = TRUE) %>% 
+  modify_caption("**Modelo de regresión logística para complicación clínica**")
+```
+
+### 3.3 Predicción de probabilidades
+
+```{r}
+datos2$prob_predicha <- predict(modelo_logistico, type = "response")
+
+datos2 %>% 
+  select(complicacion, prob_predicha) %>% 
+  head(10)
+```
+
+### 3.4 Clasificación simple según probabilidad predicha
+
+```{r}
+datos2$clasificacion <- ifelse(datos2$prob_predicha >= 0.5, "Sí", "No")
+
+table(Observado = datos2$complicacion, Predicho = datos2$clasificacion)
+```
+
+
+## 4. Escenario 3: Árbol de decisión para clasificación clínica
+
+### 4.1 Simulación de datos clínicos
+
+
+```{r}
+n4 <- 180
+
+edad <- round(rnorm(n4, mean = 58, sd = 11))
+imc <- round(rnorm(n4, mean = 30, sd = 4), 1)
+glucosa <- round(rnorm(n4, mean = 115, sd = 25), 0)
+tabaquismo <- factor(sample(c("No", "Sí"), n4, replace = TRUE, prob = c(0.7, 0.3)))
+
+riesgo <- ifelse(edad > 60 & glucosa > 120, "Alto",
+                 ifelse(imc > 32 | tabaquismo == "Sí", "Intermedio", "Bajo"))
+
+riesgo <- factor(riesgo, levels = c("Bajo", "Intermedio", "Alto"))
+
+datos4 <- data.frame(
+  edad = edad,
+  imc = imc,
+  glucosa = glucosa,
+  tabaquismo = tabaquismo,
+  riesgo = riesgo
+)
+
+head(datos4)
+```
+
+
+### 4.2 Ajuste del árbol de decisión
+
+```{r}
+modelo_arbol <- rpart(riesgo ~ edad + imc + glucosa + tabaquismo,
+                      data = datos4,
+                      method = "class")
+
+rpart.plot(modelo_arbol, type = 2, extra = 104, fallen.leaves = TRUE)
+```
+
+
+### 4.3 Predicción de clases
+
+```{r}
+pred_arbol <- predict(modelo_arbol, type = "class")
+
+table(Observado = datos4$riesgo, Predicho = pred_arbol)
+```
+
+### 4.4 Probabilidades estimadas por el árbol
+
+```{r}
+head(predict(modelo_arbol, type = "prob"))
+```
+
+## 5. Escenario 4: Support Vector Machine para clasificación clínica
+
+
+### 5.1 Preparación de datos
+
+```{r}
+datos5 <- datos4
+```
+
+
+### 5.2 Ajuste del modelo SVM
+
+```{r}
+modelo_svm <- svm(riesgo ~ edad + imc + glucosa + tabaquismo,
+                  data = datos5,
+                  kernel = "radial",
+                  probability = TRUE)
+
+modelo_svm
+```
+
+### 5.3 Predicción de clases
+
+```{r}
+pred_svm <- predict(modelo_svm, newdata = datos5, probability = TRUE)
+
+table(Observado = datos5$riesgo, Predicho = pred_svm)
+```
+
+
+### 5.4 Probabilidades estimadas
+
+```{r}
+prob_svm <- attr(pred_svm, "probabilities")
+head(prob_svm)
+```
+
+
+
+
+------------------------------------------------------------------------
+
+# Referencias
+
+1.  Kleinbaum DG, Klein M. *Survival Analysis: A Self-Learning Text*. Springer; 2012.
+2.  Therneau TM, Grambsch PM. *Modeling Survival Data: Extending the Cox Model*. Springer; 2000.

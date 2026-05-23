@@ -1,0 +1,34 @@
+---
+title: "Bienvenida"
+---
+
+# R para profesionales de la salud
+
+Este manual acompaña el aprendizaje de R desde cero hasta el uso de modelos estadísticos y predictivos en investigación clínica. Está escrito para profesionales de la salud que necesitan analizar datos con rigor, explicar sus decisiones y dejar una ruta reproducible para otras personas.
+
+## Cómo avanzar
+
+Lee los capítulos en orden si estás empezando. Si ya tienes experiencia, puedes entrar por bloques: descriptivos, inferencia, regresión o predicción clínica.
+
+::: {.callout-tip title="Idea central"}
+El objetivo no es memorizar funciones. El objetivo es aprender un flujo de trabajo: plantear una pregunta, ordenar los datos, elegir el método, revisar supuestos, interpretar resultados y comunicar con honestidad.
+:::
+
+## Mapa del manual
+
+1. Fundamentos de R y RStudio.
+2. Estadística descriptiva y visualización.
+3. Inferencia paramétrica y no paramétrica.
+4. Tamaño de muestra y potencia.
+5. Regresión lineal, GLM y supervivencia.
+6. Modelos predictivos, métricas y validación.
+
+## Antes de empezar
+
+Instala R, RStudio o Positron, Quarto y los paquetes recomendados:
+
+```r
+source("scripts/instalar-paquetes.R")
+```
+
+Los datos de ejemplo usados por algunos capítulos están en `datos/`. No son una carpeta de actividades: solo permiten que los fragmentos del manual se puedan ejecutar y revisar.

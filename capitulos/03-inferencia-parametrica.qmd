@@ -1,0 +1,280 @@
+﻿---
+title: "03 | Inferencia paramétrica"
+subtitle: "Hipótesis, supuestos, p-valores e intervalos de confianza"
+---
+
+# Inferencia paramétrica con R
+
+Con los descriptivos como punto de partida, este capítulo introduce la inferencia paramétrica: cómo formular hipótesis, revisar supuestos y decidir si una diferencia observada podría explicarse por azar.
+
+
+
+
+---
+
+### Carga de paquetes y simulación de datos
+
+Primero, cargamos los paquetes necesarios y simulamos un conjunto de datos:
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(rio)
+library(gtsummary)
+library(gt)
+library(car)
+```
+
+Para aplicar las pruebas paramétricas (independientes y pareas), por practicidad vamos a simular los datos. A continuación, se presenta unos códigos básicos para simular una base de datos. Vamos a suponer que la base de datos corresponde a  un estudio sobre una comunidad. Esta comunidad corresponde a 200 participantes. Sobre esta comunidad se realiza una intervención, a quienes se le midió un puntaje al inicio del estudio y al finalizar el estudio. Adicionalmente, se recopiló la edad y el sexo de cada persona. Estas serían las variables de la base de datos que simularemos
+
+- `ID`
+- `puntaje_basal`
+- `puntaje_final`
+- `sexo`
+- `edad`
+
+
+<!-- ```{r, warning=FALSE, message=FALSE, eval=FALSE, include=FALSE} -->
+
+```{r}
+set.seed(2025) # Semilla de aleatoriedad para replicar
+datos <- data.frame(
+  ID = 1:200,
+  puntaje_basal = rnorm(200, mean = 120, sd = 15),
+  puntaje_final = rnorm(200, mean = 180, sd = 15),
+  sexo = sample(c(rep(1,100), rep(2,100)), 200),
+  edad = rnorm(200, mean = 30, sd = 4)
+  ) %>% 
+  mutate(
+    sexo = factor(sexo, labels = c("Masculino", "Femenino"))
+  )
+datos %>% head(10)
+```
+
+Estos datos también los podemos exportar
+
+```{r}
+datos %>% export("../datos/inferencia-datos-simulados.xlsx")
+```
+
+---
+
+## Paso 1: Planteamos la hipótesis
+
+Para este ejemplo, vamos a centrarnos en determinar si existe asociación entre:
+
+- El puntaje basal y el sexo
+- El puntaje y la intervención
+- El puntaje basal y la edad
+
+
+Por ello, tendremos 3 pares de hipótesis
+
+#### 1. El puntaje basal y el sexo
+
+- Ho: No existe asociación entre el sexo y el puntaje basal
+- Ha: Existe asociación entre el sexo y el puntaje basal
+
+
+#### 2. El puntaje y la intervención
+
+- Ho: No existe asociación entre la intervención y el puntaje
+- Ha: Existe asociación entre la intervención y el puntaje
+
+
+#### 3. El puntaje basal y la edad
+
+- Ho: No existe asociación entre la edad y el puntaje basal
+- Ha: Existe asociación entre la edad y el puntaje basal
+
+
+
+## Paso 2: Elegimos la prueba de hipótesis a utilizar
+
+
+### Visualizaremos los datos
+
+#### 1. El puntaje basal y el sexo
+
+```{r}
+datos %>% 
+  ggplot(aes(x = sexo, y = puntaje_basal, fill = sexo)) +
+  geom_boxplot() +
+  geom_point(position = position_jitter(0.1), col = "grey50") +
+  theme_light() +
+  labs(
+    x = "Sexo",
+    y = "Puntaje Basal",
+    title = "Puntaje Basal por sexo",
+    fill = "Sexo",
+    col = "Sexo"
+  )
+```
+
+#### 2. El puntaje y la intervención
+
+```{r}
+datos %>% 
+  select(puntaje_basal, puntaje_final) %>% 
+  pivot_longer(names_to = "etapa", cols = tidyr::starts_with("puntaje")) %>% 
+  mutate(
+    etapa = if_else(etapa == "puntaje_basal", 1, 2),
+    etapa = factor(etapa, labels = c("Basal", "Final"))
+  ) %>% 
+  ggplot(aes(x = etapa, y = value, fill = etapa)) +
+  geom_boxplot() +
+  geom_point(position = position_jitter(0.1), col = "grey50") +
+  theme_light() +
+  labs(
+    x = "Etapa",
+    y = "Puntaje",
+    title = "Puntaje Basal vs Final",
+    fill = "Etapa",
+    col = "etapa"
+  )
+```
+
+
+
+#### 3. El puntaje basal y la edad
+
+
+```{r}
+datos %>%
+  ggplot(aes(x= edad, y=puntaje_basal)) + 
+  geom_point() +
+  theme_light() +
+  labs(y = "Puntaje basal",
+       x = "Edad")
+```
+
+
+
+
+### Verificaremos los *supuestos*
+
+
+
+#### 1. El puntaje basal y el sexo
+
+Normalidad
+
+```{r}
+datos_1 <- datos %>% filter(sexo == "Masculino")
+datos_2 <- datos %>% filter(sexo == "Femenino")
+
+ks.test(datos_1$puntaje_basal, "pnorm", mean = mean(datos_1$puntaje_basal), sd = sd(datos_1$puntaje_basal))
+ks.test(datos_2$puntaje_basal, "pnorm", mean = mean(datos_2$puntaje_basal), sd = sd(datos_2$puntaje_basal))
+```
+
+Homocedasticidad de varianzas
+
+```{r}
+leveneTest(puntaje_basal ~ sexo, data = datos)
+```
+
+
+
+#### 2. El puntaje y la intervención
+
+
+Normalidad
+
+```{r}
+datos_pivot <- datos %>% 
+  select(puntaje_basal, puntaje_final) %>% 
+  pivot_longer(names_to = "etapa", cols = tidyr::starts_with("puntaje")) %>% 
+  mutate(
+    etapa = if_else(etapa == "puntaje_basal", 1, 2),
+    etapa = factor(etapa, labels = c("Basal", "Final"))
+  )
+datos_1 <- datos_pivot %>% filter(etapa == "Basal")
+datos_2 <- datos_pivot %>% filter(etapa == "Final")
+
+ks.test(datos_1$value, "pnorm", mean = mean(datos_1$value), sd = sd(datos_1$value))
+ks.test(datos_2$value, "pnorm", mean = mean(datos_2$value), sd = sd(datos_2$value))
+```
+
+Homocedasticidad de varianzas
+
+```{r}
+leveneTest(value ~ etapa, data = datos_pivot)
+```
+
+
+#### 3. El puntaje basal y la edad
+
+Normalidad
+
+```{r}
+ks.test(datos$puntaje_basal, "pnorm", mean = mean(datos$puntaje_basal), sd = sd(datos$puntaje_basal))
+ks.test(datos$edad, "pnorm", mean = mean(datos$edad), sd = sd(datos$edad))
+```
+
+
+
+## Paso 3. Establecemos criterio (punto de corte)
+
+Vamos a trabajar con un $\alpha$ de 0.05
+
+
+## Paso 4. Calculamos la probabilidad de observar un valor igual o más extremo que la estimación observada asumiendo que la hipótesis nula es verdad (p-valor)
+
+
+#### 1. El puntaje basal y el sexo
+
+```{r}
+t.test(puntaje_basal ~ sexo, data = datos, var.equal = TRUE )
+```
+
+#### 2. El puntaje y la intervención
+
+```{r}
+t.test(datos$puntaje_basal, datos$puntaje_final, paired = TRUE)
+```
+
+
+#### 3. El puntaje basal y la edad
+
+```{r}
+cor.test(datos$puntaje_basal, datos$edad, method="pearson")
+```
+
+
+## Paso 5. Tomamos una decisión
+
+
+#### 1. El puntaje basal y el sexo
+
+No Rechazar H0
+
+#### 2. El puntaje y la intervención
+
+Rechazar H0
+
+#### 3. El puntaje basal y la edad
+
+
+No Rechazar H0
+
+---
+
+<!-- ks.test(datos$edad, "pnorm", mean = mean(datos$edad), sd = sd(datos$edad)) -->
+
+## Para reforzar la lectura
+
+1. Analizar la relación entre el sexo y el puntaje final
+2. Analizar la relación entre la edad y el puntaje final
+3. Analizar la relación entre el puntaje basal y el puntaje final
+4. Analizar la relación entre el sexo y la variación del puntaje
+5. Analizar la relación entre la edad y la variación del puntaje
+
+---
+
+# Referencias
+
+
+
+1. Wickham, H., & Grolemund, G. (2017). R for data science (Vol. 2). Sebastopol, CA: O'Reilly.
+2. Batra, N., Spina, A., Blomquist, P., Campbell, F., Laurenson-Schafer, H., Florence, I., Fischer, N., Ndiaye, A., Coyer, L., Polonsky, J., Izawa, Y., Bailey, C., Molling, D., Berry, I., Buajitti, E., Mousset, M., Hollis, S., & Lin, W. The Epidemiologist R Handbook. Applied Epi.
+
+---
