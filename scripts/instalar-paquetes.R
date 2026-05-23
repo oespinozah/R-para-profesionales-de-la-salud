@@ -4,6 +4,7 @@ paquetes <- c(
   "gtsummary",
   "gt",
   "broom",
+  "broom.helpers",
   "car",
   "epiR",
   "pwr",
@@ -28,4 +29,3 @@ if (length(faltantes) > 0) {
 }
 
 invisible(lapply(paquetes, require, character.only = TRUE))
-

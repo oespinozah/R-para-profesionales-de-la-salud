@@ -29,6 +29,7 @@ jobs:
             any::gtsummary
             any::gt
             any::broom
+            any::broom.helpers
             any::car
             any::epiR
             any::pwr
